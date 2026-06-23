@@ -13,36 +13,35 @@ try:
     actual_file = next((f for f in all_files if "집행내역" in f and f.endswith('.xlsx')), None)
 
     if budget_file and actual_file:
-        # 2. 예산 엑셀 파일 읽기 (모든 시트를 한 번에 읽고, 상단 2줄 쓰레기값은 건너뜁니다)
+        # 2. 예산 엑셀 파일 읽기
         budget_sheets = pd.read_excel(budget_file, sheet_name=None, skiprows=2)
         
         df_budget_list = []
         for sheet_name, df in budget_sheets.items():
             if not df.empty:
-                df['시트명(팀명)'] = sheet_name  # 엑셀 하단 탭(시트) 이름을 팀명으로 씁니다
+                df['시트명(팀명)'] = sheet_name
                 df_budget_list.append(df)
         
-        # 쪼개진 시트를 하나의 거대한 표로 합치기
         df_budget = pd.concat(df_budget_list, ignore_index=True)
         
         # 3. 집행내역 엑셀 파일 읽기
         df_actual = pd.read_excel(actual_file)
 
-        st.success("🎉 여러 시트로 나뉜 예산 엑셀 파일과 집행내역을 완벽하게 불러왔습니다!")
-
         # 4. 사이드바 - 데이터 컬럼 설정
         st.sidebar.markdown("### ⚙️ 데이터 매칭 (관리자용)")
-        st.sidebar.info("오류가 난다면 이곳에서 올바른 열(Column)을 선택해주세요.")
         
         b_cols = df_budget.columns.tolist()
         a_cols = df_actual.columns.tolist()
 
-        # 예산 파일에서는 새로 만든 '시트명(팀명)'을 기본 팀명으로 씁니다
         team_col_b = st.sidebar.selectbox("💰 [예산] 파일의 '팀명' 열", ['시트명(팀명)'] + b_cols, index=0)
         budget_col = st.sidebar.selectbox("💰 [예산] 파일의 '금액' 열", b_cols, index=len(b_cols)-1)
 
         team_col_a = st.sidebar.selectbox("💸 [집행] 파일의 '팀명' 열", a_cols, index=0)
         actual_col = st.sidebar.selectbox("💸 [집행] 파일의 '금액' 열", a_cols, index=len(a_cols)-1)
+
+        # ★★★ 핵심 해결 코드: 콤마(,)나 문자를 무시하고 무조건 숫자로 강제 변환 ★★★
+        df_budget[budget_col] = pd.to_numeric(df_budget[budget_col].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
+        df_actual[actual_col] = pd.to_numeric(df_actual[actual_col].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
 
         # 5. 데이터 병합 로직
         df_b_grouped = df_budget.groupby(team_col_b)[budget_col].sum().reset_index()
@@ -52,7 +51,11 @@ try:
         df_a_grouped.rename(columns={team_col_a: '팀명', actual_col: '집행금액'}, inplace=True)
 
         df_merged = pd.merge(df_b_grouped, df_a_grouped, on='팀명', how='outer').fillna(0)
-        df_merged['집행률(%)'] = (df_merged['집행금액'] / df_merged['예산금액'] * 100).round(1)
+        
+        # 0으로 나누는 에러를 방지하며 집행률 계산
+        df_merged['집행률(%)'] = df_merged.apply(
+            lambda row: (row['집행금액'] / row['예산금액'] * 100) if row['예산금액'] > 0 else 0, axis=1
+        ).round(1)
 
         st.markdown("---")
 
@@ -67,11 +70,13 @@ try:
 
         # KPI 요약 지표
         st.markdown("### 💡 요약 지표")
+        total_budget = df_display['예산금액'].sum()
+        total_actual = df_display['집행금액'].sum()
+        avg_rate = (total_actual / total_budget * 100) if total_budget > 0 else 0
+
         col1, col2, col3 = st.columns(3)
-        col1.metric("총 수립 예산", f"{df_display['예산금액'].sum():,.0f} 원")
-        col2.metric("누적 집행 금액", f"{df_display['집행금액'].sum():,.0f} 원")
-        
-        avg_rate = (df_display['집행금액'].sum() / df_display['예산금액'].sum() * 100) if df_display['예산금액'].sum() > 0 else 0
+        col1.metric("총 수립 예산", f"{total_budget:,.0f} 원")
+        col2.metric("누적 집행 금액", f"{total_actual:,.0f} 원")
         col3.metric("평균 집행률", f"{avg_rate:.1f} %")
 
         # 시각화 차트
