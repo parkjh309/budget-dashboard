@@ -24,8 +24,8 @@ try:
             'SM_SQA': '품질보증3팀'
         }
 
-        # 3. 예산 엑셀 파일 로드
-        budget_sheets = pd.read_excel(budget_file, sheet_name=None, skiprows=2)
+        # 3. 예산 엑셀 파일 로드 (진짜 제목줄인 4번째 줄을 정확히 가져오기 위해 header=3 적용)
+        budget_sheets = pd.read_excel(budget_file, sheet_name=None, header=3)
         df_budget_list = []
 
         for sheet_name, df in budget_sheets.items():
@@ -35,12 +35,14 @@ try:
                     df['최종팀명'] = cc_mapping[sheet_key]
                     df_budget_list.append(df)
         
-        df_budget = pd.concat(df_budget_list, ignore_index=True)
+        if df_budget_list:
+            df_budget = pd.concat(df_budget_list, ignore_index=True)
+        else:
+            df_budget = pd.DataFrame()
         
         # 4. 집행내역 엑셀 파일 로드
         df_actual = pd.read_excel(actual_file)
         
-        # ★★★ 문제의 에러가 발생했던 부분 완벽 수정 (.str 추가) ★★★
         if 'CC코드' in df_actual.columns:
             df_actual['최종팀명'] = df_actual['CC코드'].astype(str).str.strip().map(cc_mapping)
         elif 'CC명' in df_actual.columns:
@@ -48,19 +50,21 @@ try:
                 lambda x: next((v for k, v in cc_mapping.items() if k in str(x) or v in str(x)), None)
             )
 
-        # 5. 사이드바 - 열 매칭 자동 세팅
-        st.sidebar.markdown("### ⚙️ 데이터 매칭 정보 (자동 완료)")
+        # 5. 사이드바 - 열 매칭 및 Unnamed 원천 차단 청소
+        st.sidebar.markdown("### ⚙️ 데이터 매칭 현황")
         
-        b_cols = df_budget.columns.tolist()
-        a_cols = df_actual.columns.tolist()
+        # ★★★ 핵심 해결: Unnamed가 포함된 유령 열들은 아예 선택지에 나오지 못하게 차단합니다. ★★★
+        b_cols = [c for c in df_budget.columns.tolist() if 'Unnamed' not in str(c)]
+        a_cols = [c for c in df_actual.columns.tolist() if 'Unnamed' not in str(c)]
 
+        # 진짜 데이터 열인 '2026'과 '합계'를 자동으로 찾아 기본값으로 세팅합니다.
         default_idx_b = b_cols.index('2026') if '2026' in b_cols else (b_cols.index('합계') if '합계' in b_cols else len(b_cols)-1)
         default_idx_a = a_cols.index('합계') if '합계' in a_cols else len(a_cols)-1
 
-        budget_col = st.sidebar.selectbox("💰 [예산] 금액 열", b_cols, index=default_idx_b)
-        actual_col = st.sidebar.selectbox("💸 [집행] 금액 열", a_cols, index=default_idx_a)
+        budget_col = st.sidebar.selectbox("💰 [예산] 금액 열 선택", b_cols, index=default_idx_b)
+        actual_col = st.sidebar.selectbox("💸 [집행] 금액 열 선택", a_cols, index=default_idx_a)
 
-        # 6. 금액 데이터 정제
+        # 6. 금액 데이터 정제 (글자나 콤마 제거 후 숫자로 변환)
         df_budget[budget_col] = pd.to_numeric(df_budget[budget_col].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
         df_actual[actual_col] = pd.to_numeric(df_actual[actual_col].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
 
@@ -82,7 +86,7 @@ try:
 
         st.markdown("---")
 
-        # 8. 대시보드 화면 구성
+        # 8. 대시보드 화면 구성 (딱 깔끔하게 정리된 7개 팀만 등장)
         selected_team = st.selectbox("📌 조회할 팀을 선택하세요", ["전체보기"] + list(cc_mapping.values()))
 
         if selected_team != "전체보기":
