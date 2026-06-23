@@ -1,90 +1,92 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-import os
+import glob
 
 st.set_page_config(page_title="2026 송도캠퍼스 예실분석 대시보드", layout="wide")
 st.title("📊 2026년 팀별 예실분석 대시보드")
 
-# 1. 파일 자동 탐색
-all_files = os.listdir('.')
-budget_file = next((f for f in all_files if "예산" in f), None)
-actual_file = next((f for f in all_files if "집행내역" in f), None)
+try:
+    # 1. 쪼개진 예산 CSV 파일들을 찾아서 하나로 합치기
+    budget_files = glob.glob("*예산*.csv")
+    df_budget_list = []
 
-if budget_file and actual_file:
-    try:
-        # 2. 데이터 로드
-        df_budget = pd.read_excel(budget_file)
-        df_actual = pd.read_excel(actual_file)
+    for f in budget_files:
+        # 상단 2줄(■ 제조원가 등)을 무시하고 3번째 줄을 표의 진짜 제목(Header)으로 사용합니다.
+        try:
+            temp_df = pd.read_csv(f, header=2)
+            # 파일 이름에서 시트명(예: SM_SMF)을 추출해서 '시트명(팀명)' 이라는 새로운 열을 만들어 줍니다.
+            sheet_name = f.split('-')[-1].replace('.csv', '').strip()
+            temp_df['시트명(팀명)'] = sheet_name
+            df_budget_list.append(temp_df)
+        except:
+            pass # 문제 있는 파일은 부드럽게 넘어갑니다.
 
-        # 3. 사이드바 - 데이터 컬럼 매핑 (에러 방지용)
-        st.sidebar.markdown("### ⚙️ 데이터 설정 (관리자용)")
-        st.sidebar.info("엑셀 파일의 실제 제목줄 이름에 맞춰 아래 항목을 선택해주세요.")
+    # 2. 집행내역 파일 찾기
+    actual_files = glob.glob("*집행내역*.csv")
 
+    if budget_files and actual_files:
+        # 합친 예산 데이터와 집행내역 데이터 완성
+        df_budget = pd.concat(df_budget_list, ignore_index=True)
+        df_actual = pd.read_csv(actual_files[0])
+
+        st.success("🎉 쪼개진 예산 시트 7개와 집행내역을 완벽하게 하나로 합쳐서 불러왔습니다!")
+
+        # 3. 사이드바 - 데이터 컬럼 설정 (에러 방지용)
+        st.sidebar.markdown("### ⚙️ 데이터 매칭 (관리자용)")
         b_cols = df_budget.columns.tolist()
         a_cols = df_actual.columns.tolist()
 
-        team_col_b = st.sidebar.selectbox("💰 [예산] 파일의 '팀명' 열", b_cols, index=0)
-        budget_col = st.sidebar.selectbox("💰 [예산] 파일의 '금액' 열", b_cols, index=len(b_cols)-1)
+        team_col_b = st.sidebar.selectbox("💰 [예산] 파일의 '팀명' 열", ['시트명(팀명)'] + b_cols, index=0)
+        budget_col = st.sidebar.selectbox("💰 [예산] 파일의 '예산 금액' 열", b_cols)
 
-        team_col_a = st.sidebar.selectbox("💸 [집행] 파일의 '팀명' 열", a_cols, index=0)
-        actual_col = st.sidebar.selectbox("💸 [집행] 파일의 '금액' 열", a_cols, index=len(a_cols)-1)
+        team_col_a = st.sidebar.selectbox("💸 [집행] 파일의 '팀명' 열", a_cols)
+        actual_col = st.sidebar.selectbox("💸 [집행] 파일의 '집행 금액' 열", a_cols)
 
-        # 4. 데이터 전처리 및 병합
-        # 팀별로 그룹화하여 합계 계산
+        # 4. 데이터 전처리 및 분석 로직
         df_b_grouped = df_budget.groupby(team_col_b)[budget_col].sum().reset_index()
         df_a_grouped = df_actual.groupby(team_col_a)[actual_col].sum().reset_index()
 
-        # 열 이름을 알아보기 쉽게 통일
         df_b_grouped.rename(columns={team_col_b: '팀명', budget_col: '예산금액'}, inplace=True)
         df_a_grouped.rename(columns={team_col_a: '팀명', actual_col: '집행금액'}, inplace=True)
 
-        # 두 데이터 합치기
         df_merged = pd.merge(df_b_grouped, df_a_grouped, on='팀명', how='outer').fillna(0)
         df_merged['집행률(%)'] = (df_merged['집행금액'] / df_merged['예산금액'] * 100).round(1)
 
         st.markdown("---")
 
-        # 5. 화면 UI (팀 검색 필터)
-        team_list = ["전체보기"] + sorted(df_merged['팀명'].unique().tolist())
-        selected_team = st.selectbox("📌 조회할 팀을 선택하세요", team_list)
+        # 5. 대시보드 화면 구성
+        team_list = ["전체보기"] + sorted(df_merged['팀명'].astype(str).unique().tolist())
+        selected_team = st.selectbox("📌 조회할 팀(시트)을 선택하세요", team_list)
 
-        # 선택된 팀 데이터만 필터링
         if selected_team != "전체보기":
-            df_display = df_merged[df_merged['팀명'] == selected_team]
+            df_display = df_merged[df_merged['팀명'].astype(str) == selected_team]
         else:
             df_display = df_merged
 
-        # 6. 핵심 지표 (KPI)
+        # KPI 요약 지표
         st.markdown("### 💡 요약 지표")
-        total_budget = df_display['예산금액'].sum()
-        total_actual = df_display['집행금액'].sum()
-        avg_rate = (total_actual / total_budget * 100) if total_budget > 0 else 0
-
         col1, col2, col3 = st.columns(3)
-        col1.metric("총 수립 예산", f"{total_budget:,.0f} 원")
-        col2.metric("누적 집행 금액", f"{total_actual:,.0f} 원")
+        col1.metric("총 수립 예산", f"{df_display['예산금액'].sum():,.0f} 원")
+        col2.metric("누적 집행 금액", f"{df_display['집행금액'].sum():,.0f} 원")
+        
+        avg_rate = (df_display['집행금액'].sum() / df_display['예산금액'].sum() * 100) if df_display['예산금액'].sum() > 0 else 0
         col3.metric("평균 집행률", f"{avg_rate:.1f} %")
 
-        # 7. 예실분석 차트 (Plotly)
+        # 시각화 차트
         st.markdown("### 📈 팀별 예산 대비 집행 현황")
         fig = px.bar(
-            df_display,
-            x='팀명',
-            y=['예산금액', '집행금액'],
-            barmode='group',
-            text_auto='.2s',
-            color_discrete_sequence=['#1f77b4', '#ff7f0e'] # 파란색(예산), 주황색(집행)
+            df_display, x='팀명', y=['예산금액', '집행금액'], barmode='group', text_auto='.2s',
+            color_discrete_sequence=['#1f77b4', '#ff7f0e']
         )
-        fig.update_layout(xaxis_title="팀명", yaxis_title="금액 (원)", legend_title="구분")
         st.plotly_chart(fig, use_container_width=True)
 
-        # 8. 상세 데이터 표
+        # 상세 표
         st.markdown("### 📋 상세 데이터")
         st.dataframe(df_display.style.format({'예산금액': '{:,.0f}', '집행금액': '{:,.0f}', '집행률(%)': '{:.1f}%'}))
 
-    except Exception as e:
-        st.error(f"⚠️ 데이터 처리 중 오류가 발생했습니다: {e}")
-        st.info("왼쪽 사이드바(숨겨져 있다면 〉화살표 클릭)에서 올바른 열(Column) 이름이 선택되었는지 확인해주세요.")
-else:
-    st.error("❌ 데이터 파일을 찾을 수 없습니다. 파일명이 깃허브에 잘 올라갔는지 확인해주세요.")
+    else:
+        st.error("❌ 깃허브에 예산.csv 또는 집행내역.csv 파일이 부족합니다.")
+
+except Exception as e:
+    st.error(f"⚠️ 데이터 처리 중 오류가 발생했습니다: {e}")
