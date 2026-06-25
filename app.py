@@ -3,24 +3,24 @@ import pandas as pd
 import plotly.express as px
 import os
 
-# 멋진 인터렉티브 타이틀 적용!
+# 대시보드 타이틀 설정
 st.set_page_config(page_title="인터렉티브 예실분석 컨트롤 타워", layout="wide")
 st.title("📊 송도캠퍼스 예실분석 컨트롤 타워")
 
 try:
-    # 1. 파일 찾기
+    # 1. 파일 자동 탐색
     all_files = os.listdir('.')
     budget_file = next((f for f in all_files if "예산" in f and f.endswith('.xlsx')), None)
     actual_file = next((f for f in all_files if "집행내역" in f and f.endswith('.xlsx')), None)
 
     if budget_file and actual_file:
-        # 2. 지정된 7개 팀 및 CC코드 매칭 정보
+        # 2. 7개 팀 및 CC코드 매칭 정보
         cc_mapping = {
             'SM_SMF': '송도공장장', 'SM_SAO': '제조팀', 'SM_SHO': '설비관리팀',
             'SM_SDO': '생산지원팀', 'SM_SVO': '밸리데이션팀', 'SM_QSF': '품질관리6팀', 'SM_SQA': '품질보증3팀'
         }
 
-        # 3. 예산 엑셀 파일 로드 및 ★소계/합계 중복 합산 방지★
+        # 3. 예산 데이터 로드 및 중복 합산 방지
         budget_sheets = pd.read_excel(budget_file, sheet_name=None, header=3)
         df_budget_list = []
 
@@ -28,7 +28,6 @@ try:
             sheet_key = sheet_name.strip()
             if sheet_key in cc_mapping:
                 if not df.empty:
-                    # '계정코드'가 없는 줄(소계, 타이틀 등)은 싹 다 지워서 뻥튀기를 막습니다.
                     if '계정코드' in df.columns:
                         df = df[df['계정코드'].notna()]
                     df['최종팀명'] = cc_mapping[sheet_key]
@@ -36,7 +35,7 @@ try:
         
         df_budget = pd.concat(df_budget_list, ignore_index=True) if df_budget_list else pd.DataFrame()
         
-        # 4. 집행내역 엑셀 파일 로드 및 ★소계/합계 중복 합산 방지★
+        # 4. 집행내역 데이터 로드 및 중복 합산 방지
         df_actual = pd.read_excel(actual_file)
         
         if '항목코드' in df_actual.columns:
@@ -49,26 +48,22 @@ try:
                 lambda x: next((v for k, v in cc_mapping.items() if k in str(x) or v in str(x)), None)
             )
 
-        # 5. 사이드바 - 열 매칭 현황
+        # 5. 사이드바 - 열 매칭 자동화
         st.sidebar.markdown("### ⚙️ 데이터 매칭 (자동화)")
-        
         b_cols = [c for c in df_budget.columns.tolist() if 'Unnamed' not in str(c)]
         a_cols = [c for c in df_actual.columns.tolist() if 'Unnamed' not in str(c)]
 
-        # '2026.01' 등에 속지 않고 진짜 1년 전체 열인 '2026'과 '합계'를 찾아냅니다.
         default_idx_b = next((i for i, c in enumerate(b_cols) if str(c).strip() == '2026'), len(b_cols)-1)
         default_idx_a = next((i for i, c in enumerate(a_cols) if '합계' in str(c)), len(a_cols)-1)
 
         budget_col = st.sidebar.selectbox("💰 [예산] 금액 열 선택", b_cols, index=default_idx_b)
         actual_col = st.sidebar.selectbox("💸 [집행] 금액 열 선택", a_cols, index=default_idx_a)
 
-        # (불필요한 노란색 경고 문구 삭제 완료)
-
         # 6. 금액 데이터 정제
         df_budget[budget_col] = pd.to_numeric(df_budget[budget_col].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
         df_actual[actual_col] = pd.to_numeric(df_actual[actual_col].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
 
-        # 7. 7개 팀 기준으로 그룹화 및 병합
+        # 7. 7개 팀 기준 그룹화 및 병합
         df_b_grouped = df_budget.groupby('최종팀명')[budget_col].sum().reset_index()
         df_a_grouped = df_actual.groupby('최종팀명')[actual_col].sum().reset_index()
 
@@ -76,7 +71,6 @@ try:
         df_a_grouped.rename(columns={'최종팀명': '팀명', actual_col: '집행금액'}, inplace=True)
 
         df_final_teams = pd.DataFrame({'팀명': list(cc_mapping.values())})
-        
         df_merged = pd.merge(df_final_teams, df_b_grouped, on='팀명', how='left').fillna(0)
         df_merged = pd.merge(df_merged, df_a_grouped, on='팀명', how='left').fillna(0)
         
@@ -90,9 +84,9 @@ try:
         selected_team = st.selectbox("📌 조회할 팀을 선택하세요", ["전체보기"] + list(cc_mapping.values()))
 
         if selected_team != "전체보기":
-            df_display = df_merged[df_merged['팀명'] == selected_team]
+            df_display = df_merged[df_merged['팀명'] == selected_team].copy()
         else:
-            df_display = df_merged
+            df_display = df_merged.copy()
 
         # KPI 요약 지표
         st.markdown("### 💡 요약 지표")
@@ -105,16 +99,48 @@ try:
         col2.metric("누적 집행 금액", f"{total_actual:,.0f} 원")
         col3.metric("평균 집행률", f"{avg_rate:.1f} %")
 
-        # 시각화 바 차트 (G 단위를 없애고 콤마 숫자로 패치 적용)
+        # ★★★ 핵심 해결: 숫자를 한글 금액 표현으로 바꿔주는 마법의 헬퍼 함수 ★★★
+        def convert_to_korean_amount(val):
+            if val >= 100000000:  # 1억 이상
+                return f"{val / 100000000:.1f}억 원"
+            elif val >= 10000:   # 1만 이상
+                return f"{val / 10000:,.0f}만 원"
+            elif val > 0:
+                return f"{val:,.0f} 원"
+            return "0 원"
+
+        # 그래프 표시용 가상 데이터셋에 한글 텍스트 라벨 추가
+        df_plot = df_display.copy()
+        df_plot['예산금액_라벨'] = df_plot['예산금액'].apply(convert_to_korean_amount)
+        df_plot['집행금액_라벨'] = df_plot['집행금액'].apply(convert_to_korean_amount)
+
+        # 9. 시각화 바 차트 (한글 금액 단위 반영)
         st.markdown("### 📈 예산 대비 집행 현황")
+        
+        # Plotly Express의 구조를 다변화하여 가독성 높은 차트 생성
         fig = px.bar(
-            df_display, x='팀명', y=['예산금액', '집행금액'], barmode='group', text_auto=',.0f',
+            df_plot, x='팀명', y=['예산금액', '집행금액'], barmode='group',
             color_discrete_sequence=['#1f77b4', '#ff7f0e']
         )
-        fig.update_layout(xaxis_title="팀명", yaxis_title="금액 (원)", legend_title="구분")
+        
+        # 막대 위에 한글로 된 텍스트 라벨을 직접 얹어줍니다.
+        for i, t in enumerate(fig.data):
+            if t.name == '예산금액':
+                t.text = df_plot['예산금액_라벨']
+            else:
+                t.text = df_plot['집행금액_라벨']
+            t.textposition = 'outside' # 막대 바깥쪽 위에 글자 배치
+
+        # 세로축 축 수치 역시 한글 단위로 보이도록 포맷 변경
+        fig.update_layout(
+            xaxis_title="팀명", 
+            yaxis_title="금액 (원)", 
+            legend_title="구분",
+            yaxis=dict(tickformat=",.0f")
+        )
         st.plotly_chart(fig, use_container_width=True)
 
-        # 상세 표
+        # 10. 상세 표
         st.markdown("### 📋 상세 데이터")
         st.dataframe(df_display.style.format({'예산금액': '{:,.0f}', '집행금액': '{:,.0f}', '집행률(%)': '{:.1f}%'}))
 
