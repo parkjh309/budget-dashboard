@@ -3,9 +3,9 @@ import pandas as pd
 import plotly.express as px
 import os
 
-# 대시보드 타이틀 설정
-st.set_page_config(page_title="인터렉티브 예실분석 컨트롤 타워", layout="wide")
-st.title("📊 송도캠퍼스 예실분석 컨트롤 타워")
+# ★ 확정된 멋진 타이틀 적용! ★
+st.set_page_config(page_title="송도캠퍼스 파이낸셜 네비게이터", layout="wide")
+st.title("📊 송도캠퍼스 파이낸셜 네비게이터")
 
 try:
     # 1. 파일 자동 탐색
@@ -99,7 +99,7 @@ try:
         col2.metric("누적 집행 금액", f"{total_actual:,.0f} 원")
         col3.metric("평균 집행률", f"{avg_rate:.1f} %")
 
-        # ★★★ 핵심 해결: 숫자를 한글 금액 표현으로 바꿔주는 마법의 헬퍼 함수 ★★★
+        # 숫자를 한글 금액 표현으로 바꿔주는 헬퍼 함수
         def convert_to_korean_amount(val):
             if val >= 100000000:  # 1억 이상
                 return f"{val / 100000000:.1f}억 원"
@@ -117,7 +117,6 @@ try:
         # 9. 시각화 바 차트 (한글 금액 단위 반영)
         st.markdown("### 📈 예산 대비 집행 현황")
         
-        # Plotly Express의 구조를 다변화하여 가독성 높은 차트 생성
         fig = px.bar(
             df_plot, x='팀명', y=['예산금액', '집행금액'], barmode='group',
             color_discrete_sequence=['#1f77b4', '#ff7f0e']
