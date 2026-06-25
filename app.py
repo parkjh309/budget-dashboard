@@ -62,8 +62,7 @@ try:
         budget_col = st.sidebar.selectbox("💰 [예산] 금액 열 선택", b_cols, index=default_idx_b)
         actual_col = st.sidebar.selectbox("💸 [집행] 금액 열 선택", a_cols, index=default_idx_a)
 
-        # 사용자 경고 메시지
-        st.sidebar.warning("※ 집행률이 비정상적으로 700% 이상 뜬다면, [예산] 금액 열이 '2026.01'(1월)로 잘못 선택되어 있는지 꼭 확인하세요!")
+        # (불필요한 노란색 경고 문구 삭제 완료)
 
         # 6. 금액 데이터 정제
         df_budget[budget_col] = pd.to_numeric(df_budget[budget_col].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
@@ -106,10 +105,10 @@ try:
         col2.metric("누적 집행 금액", f"{total_actual:,.0f} 원")
         col3.metric("평균 집행률", f"{avg_rate:.1f} %")
 
-        # 시각화 바 차트
+        # 시각화 바 차트 (G 단위를 없애고 콤마 숫자로 패치 적용)
         st.markdown("### 📈 예산 대비 집행 현황")
         fig = px.bar(
-            df_display, x='팀명', y=['예산금액', '집행금액'], barmode='group', text_auto='.2s',
+            df_display, x='팀명', y=['예산금액', '집행금액'], barmode='group', text_auto=',.0f',
             color_discrete_sequence=['#1f77b4', '#ff7f0e']
         )
         fig.update_layout(xaxis_title="팀명", yaxis_title="금액 (원)", legend_title="구분")
