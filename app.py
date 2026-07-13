@@ -11,8 +11,6 @@ try:
     # 1. 파일 자동 탐색
     all_files = os.listdir('.')
     budget_file = next((f for f in all_files if "예산" in f and f.endswith('.xlsx')), None)
-    
-    # ★ 수정된 부분: "집행내역" -> "경비집행"이라는 단어를 찾도록 변경 완료 ★
     actual_file = next((f for f in all_files if "경비집행" in f and f.endswith('.xlsx')), None)
 
     if budget_file and actual_file:
@@ -22,8 +20,8 @@ try:
             'SM_SDO': '생산지원팀', 'SM_SVO': '밸리데이션팀', 'SM_QSF': '품질관리6팀', 'SM_SQA': '품질보증3팀'
         }
 
-        # 3. 예산 데이터 로드 및 중복 합산 방지
-        budget_sheets = pd.read_excel(budget_file, sheet_name=None, header=3)
+        # 3. 예산 데이터 로드 (★다이어트된 엑셀에 맞춰 header=3 삭제 완료!★)
+        budget_sheets = pd.read_excel(budget_file, sheet_name=None)
         df_budget_list = []
 
         for sheet_name, df in budget_sheets.items():
