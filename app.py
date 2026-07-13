@@ -1,150 +1,42 @@
 import streamlit as st
 import pandas as pd
-import plotly.express as px
 import os
 
-# ★ 확정된 멋진 타이틀 적용! ★
 st.set_page_config(page_title="송도캠퍼스 파이낸셜 네비게이터", layout="wide")
-st.title("📊 송도캠퍼스 파이낸셜 네비게이터")
+st.title("📊 송도캠퍼스 파이낸셜 네비게이터 (안전 모드)")
 
 try:
-    # 1. 파일 자동 탐색
+    st.write("🔍 깃허브에 있는 파일들을 확인하는 중입니다...")
     all_files = os.listdir('.')
-    budget_file = next((f for f in all_files if "예산" in f and f.endswith('.xlsx')), None)
-    actual_file = next((f for f in all_files if "경비집행" in f and f.endswith('.xlsx')), None)
+    
+    budget_file = next((f for f in all_files if "예산" in f and (f.endswith('.xlsx') or f.endswith('.csv'))), None)
+    actual_file = next((f for f in all_files if "집행" in f and (f.endswith('.xlsx') or f.endswith('.csv'))), None)
 
-    if budget_file and actual_file:
-        # 2. 7개 팀 및 CC코드 매칭 정보
-        cc_mapping = {
-            'SM_SMF': '송도공장장', 'SM_SAO': '제조팀', 'SM_SHO': '설비관리팀',
-            'SM_SDO': '생산지원팀', 'SM_SVO': '밸리데이션팀', 'SM_QSF': '품질관리6팀', 'SM_SQA': '품질보증3팀'
-        }
-
-        # 3. 예산 데이터 로드 (★다이어트된 엑셀에 맞춰 header=3 삭제 완료!★)
-        budget_sheets = pd.read_excel(budget_file, sheet_name=None)
-        df_budget_list = []
-
-        for sheet_name, df in budget_sheets.items():
-            sheet_key = sheet_name.strip()
-            if sheet_key in cc_mapping:
-                if not df.empty:
-                    if '계정코드' in df.columns:
-                        df = df[df['계정코드'].notna()]
-                    df['최종팀명'] = cc_mapping[sheet_key]
-                    df_budget_list.append(df)
-        
-        df_budget = pd.concat(df_budget_list, ignore_index=True) if df_budget_list else pd.DataFrame()
-        
-        # 4. 집행내역 데이터 로드 및 중복 합산 방지
-        df_actual = pd.read_excel(actual_file)
-        
-        if '항목코드' in df_actual.columns:
-            df_actual = df_actual[df_actual['항목코드'].notna()]
-
-        if 'CC코드' in df_actual.columns:
-            df_actual['최종팀명'] = df_actual['CC코드'].astype(str).str.strip().map(cc_mapping)
-        elif 'CC명' in df_actual.columns:
-            df_actual['최종팀명'] = df_actual['CC명'].apply(
-                lambda x: next((v for k, v in cc_mapping.items() if k in str(x) or v in str(x)), None)
-            )
-
-        # 5. 사이드바 - 열 매칭 자동화
-        st.sidebar.markdown("### ⚙️ 데이터 매칭 (자동화)")
-        b_cols = [c for c in df_budget.columns.tolist() if 'Unnamed' not in str(c)]
-        a_cols = [c for c in df_actual.columns.tolist() if 'Unnamed' not in str(c)]
-
-        default_idx_b = next((i for i, c in enumerate(b_cols) if str(c).strip() == '2026'), len(b_cols)-1)
-        default_idx_a = next((i for i, c in enumerate(a_cols) if '합계' in str(c)), len(a_cols)-1)
-
-        budget_col = st.sidebar.selectbox("💰 [예산] 금액 열 선택", b_cols, index=default_idx_b)
-        actual_col = st.sidebar.selectbox("💸 [집행] 금액 열 선택", a_cols, index=default_idx_a)
-
-        # 6. 금액 데이터 정제
-        df_budget[budget_col] = pd.to_numeric(df_budget[budget_col].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
-        df_actual[actual_col] = pd.to_numeric(df_actual[actual_col].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
-
-        # 7. 7개 팀 기준 그룹화 및 병합
-        df_b_grouped = df_budget.groupby('최종팀명')[budget_col].sum().reset_index()
-        df_a_grouped = df_actual.groupby('최종팀명')[actual_col].sum().reset_index()
-
-        df_b_grouped.rename(columns={'최종팀명': '팀명', budget_col: '예산금액'}, inplace=True)
-        df_a_grouped.rename(columns={'최종팀명': '팀명', actual_col: '집행금액'}, inplace=True)
-
-        df_final_teams = pd.DataFrame({'팀명': list(cc_mapping.values())})
-        df_merged = pd.merge(df_final_teams, df_b_grouped, on='팀명', how='left').fillna(0)
-        df_merged = pd.merge(df_merged, df_a_grouped, on='팀명', how='left').fillna(0)
-        
-        df_merged['집행률(%)'] = df_merged.apply(
-            lambda row: (row['집행금액'] / row['예산금액'] * 100) if row['예산금액'] > 0 else 0, axis=1
-        ).round(1)
-
-        st.markdown("---")
-
-        # 8. 대시보드 화면 구성
-        selected_team = st.selectbox("📌 조회할 팀을 선택하세요", ["전체보기"] + list(cc_mapping.values()))
-
-        if selected_team != "전체보기":
-            df_display = df_merged[df_merged['팀명'] == selected_team].copy()
-        else:
-            df_display = df_merged.copy()
-
-        # KPI 요약 지표
-        st.markdown("### 💡 요약 지표")
-        total_budget = df_display['예산금액'].sum()
-        total_actual = df_display['집행금액'].sum()
-        avg_rate = (total_actual / total_budget * 100) if total_budget > 0 else 0
-
-        col1, col2, col3 = st.columns(3)
-        col1.metric("총 수립 예산", f"{total_budget:,.0f} 원")
-        col2.metric("누적 집행 금액", f"{total_actual:,.0f} 원")
-        col3.metric("평균 집행률", f"{avg_rate:.1f} %")
-
-        # 숫자를 한글 금액 표현으로 바꿔주는 헬퍼 함수
-        def convert_to_korean_amount(val):
-            if val >= 100000000:  # 1억 이상
-                return f"{val / 100000000:.1f}억 원"
-            elif val >= 10000:   # 1만 이상
-                return f"{val / 10000:,.0f}만 원"
-            elif val > 0:
-                return f"{val:,.0f} 원"
-            return "0 원"
-
-        # 그래프 표시용 가상 데이터셋에 한글 텍스트 라벨 추가
-        df_plot = df_display.copy()
-        df_plot['예산금액_라벨'] = df_plot['예산금액'].apply(convert_to_korean_amount)
-        df_plot['집행금액_라벨'] = df_plot['집행금액'].apply(convert_to_korean_amount)
-
-        # 9. 시각화 바 차트 (한글 금액 단위 반영)
-        st.markdown("### 📈 예산 대비 집행 현황")
-        
-        fig = px.bar(
-            df_plot, x='팀명', y=['예산금액', '집행금액'], barmode='group',
-            color_discrete_sequence=['#1f77b4', '#ff7f0e']
-        )
-        
-        # 막대 위에 한글로 된 텍스트 라벨을 직접 얹어줍니다.
-        for i, t in enumerate(fig.data):
-            if t.name == '예산금액':
-                t.text = df_plot['예산금액_라벨']
-            else:
-                t.text = df_plot['집행금액_라벨']
-            t.textposition = 'outside' # 막대 바깥쪽 위에 글자 배치
-
-        # 세로축 축 수치 역시 한글 단위로 보이도록 포맷 변경
-        fig.update_layout(
-            xaxis_title="팀명", 
-            yaxis_title="금액 (원)", 
-            legend_title="구분",
-            yaxis=dict(tickformat=",.0f")
-        )
-        st.plotly_chart(fig, use_container_width=True)
-
-        # 10. 상세 표
-        st.markdown("### 📋 상세 데이터")
-        st.dataframe(df_display.style.format({'예산금액': '{:,.0f}', '집행금액': '{:,.0f}', '집행률(%)': '{:.1f}%'}))
-
+    if not budget_file or not actual_file:
+        st.error("❌ '예산' 또는 '집행' 파일이 깃허브에 없습니다. 위 파일 목록을 확인해주세요.")
+        st.write("현재 폴더의 파일 목록:", all_files)
     else:
-        st.error("❌ 깃허브에서 .xlsx 확장자를 가진 '예산' 또는 '경비집행' 파일을 찾을 수 없습니다.")
+        st.success(f"✅ 파일 찾기 성공! (예산: {budget_file} / 집행: {actual_file})")
+
+        # 데이터 읽기 시도
+        st.write("⏳ 엑셀 데이터를 여는 중입니다...")
+        if budget_file.endswith('.csv'):
+            df_budget = pd.read_csv(budget_file)
+        else:
+            df_budget = pd.read_excel(budget_file)
+
+        if actual_file.endswith('.csv'):
+            df_actual = pd.read_csv(actual_file)
+        else:
+            df_actual = pd.read_excel(actual_file)
+
+        st.success("✅ 데이터 열기 성공! 아래에 원본 데이터를 보여줍니다.")
+
+        st.subheader("📋 예산 파일 원본 (첫 5줄)")
+        st.dataframe(df_budget.head())
+
+        st.subheader("📋 집행 내역 파일 원본 (첫 5줄)")
+        st.dataframe(df_actual.head())
 
 except Exception as e:
-    st.error(f"⚠️ 데이터 처리 중 오류가 발생했습니다: {e}")
+    st.error(f"⚠️ 치명적인 오류가 발생했습니다: {e}")
