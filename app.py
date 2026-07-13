@@ -11,7 +11,9 @@ try:
     # 1. 파일 자동 탐색
     all_files = os.listdir('.')
     budget_file = next((f for f in all_files if "예산" in f and f.endswith('.xlsx')), None)
-    actual_file = next((f for f in all_files if "집행내역" in f and f.endswith('.xlsx')), None)
+    
+    # ★ 수정된 부분: "집행내역" -> "경비집행"이라는 단어를 찾도록 변경 완료 ★
+    actual_file = next((f for f in all_files if "경비집행" in f and f.endswith('.xlsx')), None)
 
     if budget_file and actual_file:
         # 2. 7개 팀 및 CC코드 매칭 정보
@@ -144,7 +146,7 @@ try:
         st.dataframe(df_display.style.format({'예산금액': '{:,.0f}', '집행금액': '{:,.0f}', '집행률(%)': '{:.1f}%'}))
 
     else:
-        st.error("❌ 깃허브에서 .xlsx 확장자를 가진 '예산' 또는 '집행내역' 파일을 찾을 수 없습니다.")
+        st.error("❌ 깃허브에서 .xlsx 확장자를 가진 '예산' 또는 '경비집행' 파일을 찾을 수 없습니다.")
 
 except Exception as e:
     st.error(f"⚠️ 데이터 처리 중 오류가 발생했습니다: {e}")
