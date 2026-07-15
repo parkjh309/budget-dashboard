@@ -70,21 +70,28 @@ try:
             b_cols = [c for c in df_budget.columns.tolist() if 'Unnamed' not in str(c)]
             a_cols = [c for c in df_actual.columns.tolist() if 'Unnamed' not in str(c)]
 
-            # ★ [안전 수정] 드롭다운에서 불필요한 메뉴 제외하고 딱 원하는 항목만 남기기 ★
-            allowed_budget = ['2026', '2026.01', '2026.02', '2026.03', '2026.04', '2026.05']
+            # ----------------- [필터 적용 구간] -----------------
+            # 예산 필터: TOTAL('2026') 및 월별('2026.01'~'2026.12')만 허용
+            allowed_budget = ['2026', '2026.01', '2026.02', '2026.03', '2026.04', '2026.05', 
+                              '2026.06', '2026.07', '2026.08', '2026.09', '2026.1', '2026.10', '2026.11', '2026.12']
             b_cols_filtered = [c for c in b_cols if str(c).strip() in allowed_budget]
-            
-            # 안전장치 (예외 상황 대비)
             if not b_cols_filtered:
                 b_cols_filtered = b_cols
+
+            # ★ [추가된 집행 필터] 월('01월'~'12월') 및 '합계', 'TOTAL' 관련 키워드만 허용 ★
+            allowed_actual_keywords = ['월', '합계', 'TOTAL', 'total', 'Total', '계']
+            a_cols_filtered = [c for c in a_cols if any(pat in str(c) for pat in allowed_actual_keywords)]
+            if not a_cols_filtered:
+                a_cols_filtered = a_cols
+            # --------------------------------------------------
 
             # 기본 매칭 인덱스 설정
             default_idx_b = next((i for i, c in enumerate(b_cols_filtered) if '2026.05' in str(c)), 
                                  next((i for i, c in enumerate(b_cols_filtered) if '2026' in str(c)), 0))
-            default_idx_a = next((i for i, c in enumerate(a_cols) if '05월' in str(c)), 0)
+            default_idx_a = next((i for i, c in enumerate(a_cols_filtered) if '05월' in str(c)), 0)
 
             budget_col = st.sidebar.selectbox("💰 [예산] 금액 열 선택", b_cols_filtered, index=default_idx_b)
-            actual_col = st.sidebar.selectbox("💸 [집행] 금액 열 선택", a_cols, index=default_idx_a)
+            actual_col = st.sidebar.selectbox("💸 [집행] 금액 열 선택", a_cols_filtered, index=default_idx_a)
 
             # 5. 금액 데이터 정제
             df_budget[budget_col] = pd.to_numeric(df_budget[budget_col].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
