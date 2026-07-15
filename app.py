@@ -70,28 +70,44 @@ try:
             b_cols = [c for c in df_budget.columns.tolist() if 'Unnamed' not in str(c)]
             a_cols = [c for c in df_actual.columns.tolist() if 'Unnamed' not in str(c)]
 
-            # ----------------- [필터 적용 구간] -----------------
-            # 예산 필터: TOTAL('2026') 및 월별('2026.01'~'2026.12')만 허용
-            allowed_budget = ['2026', '2026.01', '2026.02', '2026.03', '2026.04', '2026.05', 
-                              '2026.06', '2026.07', '2026.08', '2026.09', '2026.1', '2026.10', '2026.11', '2026.12']
-            b_cols_filtered = [c for c in b_cols if str(c).strip() in allowed_budget]
-            if not b_cols_filtered:
-                b_cols_filtered = b_cols
+            # ----------------- [TOTAL 매칭 및 이름 단순화 작업] -----------------
+            # 1) 예산 열 가공 (실제 예산 파일에는 '2026'이라는 열이 TOTAL 역할을 함)
+            budget_menu_mapping = {}
+            for col in b_cols:
+                col_str = str(col).strip()
+                if col_str == '2026':
+                    budget_menu_mapping['TOTAL'] = col  # 화면엔 TOTAL로 표시하고 실제 데이터는 '2026' 사용
+                elif col_str in ['2026.01', '2026.02', '2026.03', '2026.04', '2026.05']:
+                    budget_menu_mapping[col_str] = col
 
-            # ★ [추가된 집행 필터] 월('01월'~'12월') 및 '합계', 'TOTAL' 관련 키워드만 허용 ★
-            allowed_actual_keywords = ['월', '합계', 'TOTAL', 'total', 'Total', '계']
-            a_cols_filtered = [c for c in a_cols if any(pat in str(c) for pat in allowed_actual_keywords)]
-            if not a_cols_filtered:
-                a_cols_filtered = a_cols
-            # --------------------------------------------------
+            # 2) 집행 열 가공 (실제 집행 파일의 '합계'를 찾아 TOTAL로 매칭)
+            actual_menu_mapping = {}
+            for col in a_cols:
+                col_str = str(col).strip()
+                if '합계' in col_str or 'TOTAL' in col_str.upper():
+                    actual_menu_mapping['TOTAL'] = col  # 화면엔 TOTAL로 표시하고 실제 데이터는 '합계' 사용
+                elif any(m in col_str for m in ['01월', '02월', '03월', '04월', '05월']):
+                    actual_menu_mapping[col_str] = col
+            # ------------------------------------------------------------------
 
-            # 기본 매칭 인덱스 설정
-            default_idx_b = next((i for i, c in enumerate(b_cols_filtered) if '2026.05' in str(c)), 
-                                 next((i for i, c in enumerate(b_cols_filtered) if '2026' in str(c)), 0))
-            default_idx_a = next((i for i, c in enumerate(a_cols_filtered) if '05월' in str(c)), 0)
+            # 드롭다운에 띄울 키 목록 생성 (TOTAL을 맨 앞으로 보냄)
+            b_keys = sorted(list(budget_menu_mapping.keys()))
+            if 'TOTAL' in b_keys:
+                b_keys.remove('TOTAL')
+                b_keys = ['TOTAL'] + b_keys
 
-            budget_col = st.sidebar.selectbox("💰 [예산] 금액 열 선택", b_cols_filtered, index=default_idx_b)
-            actual_col = st.sidebar.selectbox("💸 [집행] 금액 열 선택", a_cols_filtered, index=default_idx_a)
+            a_keys = sorted(list(actual_menu_mapping.keys()))
+            if 'TOTAL' in a_keys:
+                a_keys.remove('TOTAL')
+                a_keys = ['TOTAL'] + a_keys
+
+            # 드롭다운 생성
+            selected_b_key = st.sidebar.selectbox("💰 [예산] 금액 열 선택", b_keys, index=0)
+            selected_a_key = st.sidebar.selectbox("💸 [집행] 금액 열 선택", a_keys, index=0)
+
+            # 실제 파이썬이 계산할 때 사용할 진짜 열 이름 가져오기
+            budget_col = budget_menu_mapping[selected_b_key]
+            actual_col = actual_menu_mapping[selected_a_key]
 
             # 5. 금액 데이터 정제
             df_budget[budget_col] = pd.to_numeric(df_budget[budget_col].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
