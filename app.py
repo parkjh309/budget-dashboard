@@ -61,59 +61,43 @@ try:
                     lambda x: next((v for k, v in cc_mapping.items() if k in str(x) or v in str(x)), None)
                 )
 
-            # ★ [핵심 추가] 집행 파일에 '합계' 열이 없으면 파이썬이 1월~5월을 더해서 자동으로 만듭니다! ★
-            actual_month_cols = [c for c in df_actual.columns if '월' in str(c)]
+            # ★ [가장 중요한 해결책] 집행 파일에 TOTAL(합계)이 없으면 파이썬이 알아서 더해서 만듭니다! ★
+            actual_month_cols = [f"{i:02d}월" for i in range(1, 13) if f"{i:02d}월" in df_actual.columns]
             if '합계' not in df_actual.columns and actual_month_cols:
-                # 숫자 형식으로 변환 후 합계 계산
                 for mc in actual_month_cols:
                     df_actual[mc] = pd.to_numeric(df_actual[mc].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
                 df_actual['합계'] = df_actual[actual_month_cols].sum(axis=1)
 
         if not df_budget.empty and not df_actual.empty:
-            # 4. 사이드바 - 열 매칭 및 필터링
+            # 4. 사이드바 - 완벽하게 깨끗한 메뉴판 만들기
             st.sidebar.markdown("### ⚙️ 데이터 매칭")
-            b_cols = [c for c in df_budget.columns.tolist() if 'Unnamed' not in str(c)]
-            a_cols = [c for c in df_actual.columns.tolist() if 'Unnamed' not in str(c)]
+            
+            # ★ 화면에 보여줄 예쁘고 깔끔한 이름표 목록 (이상한 글자 원천 차단)
+            display_names = ['TOTAL', '01월', '02월', '03월', '04월', '05월', '06월', '07월', '08월', '09월', '10월', '11월', '12월']
+            
+            # 예산 데이터의 엑셀 원본 열 이름과 연결 (10월은 2026.1 임에 주의)
+            budget_real_cols = {
+                'TOTAL': '2026', '01월': '2026.01', '02월': '2026.02', '03월': '2026.03', 
+                '04월': '2026.04', '05월': '2026.05', '06월': '2026.06', '07월': '2026.07',
+                '08월': '2026.08', '09월': '2026.09', '10월': '2026.1', '11월': '2026.11', '12월': '2026.12'
+            }
+            
+            # 집행 데이터의 엑셀 원본 열 이름과 연결
+            actual_real_cols = {'TOTAL': '합계'}
+            for i in range(1, 13):
+                actual_real_cols[f"{i:02d}월"] = f"{i:02d}월"
 
-            # 예산 메뉴 매칭
-            budget_menu_mapping = {}
-            for col in b_cols:
-                col_str = str(col).strip()
-                if col_str == '2026':
-                    budget_menu_mapping['TOTAL'] = col
-                elif col_str in ['2026.01', '2026.02', '2026.03', '2026.04', '2026.05']:
-                    budget_menu_mapping[col_str] = col
+            # 엑셀에 실제로 데이터가 존재하는 달만 메뉴에 띄우기 (에러 완벽 차단)
+            b_keys = [k for k in display_names if budget_real_cols[k] in df_budget.columns]
+            a_keys = [k for k in display_names if actual_real_cols[k] in df_actual.columns]
 
-            # 집행 메뉴 매칭 (이제 파이썬이 만든 '합계' 열을 무조건 찾습니다!)
-            actual_menu_mapping = {}
-            for col in a_cols:
-                col_str = str(col).strip()
-                if '합계' in col_str or 'TOTAL' in col_str.upper():
-                    actual_menu_mapping['TOTAL'] = col
-                elif any(m in col_str for m in ['01월', '02월', '03월', '04월', '05월']):
-                    actual_menu_mapping[col_str] = col
-
-            # 드롭다운 키 정렬 (TOTAL을 무조건 맨 위로)
-            b_keys = sorted(list(budget_menu_mapping.keys()))
-            if 'TOTAL' in b_keys:
-                b_keys.remove('TOTAL')
-                b_keys = ['TOTAL'] + b_keys
-
-            a_keys = sorted(list(actual_menu_mapping.keys()))
-            if 'TOTAL' in a_keys:
-                a_keys.remove('TOTAL')
-                a_keys = ['TOTAL'] + a_keys
-
-            # 안전장치 (메뉴가 텅 비었을 경우 대비)
-            if not b_keys: b_keys = b_cols
-            if not a_keys: a_keys = a_cols
-
+            # 드롭다운 생성 (무조건 TOTAL이 1순위로 나타남)
             selected_b_key = st.sidebar.selectbox("💰 [예산] 금액 열 선택", b_keys, index=0)
             selected_a_key = st.sidebar.selectbox("💸 [집행] 금액 열 선택", a_keys, index=0)
 
-            # 딕셔너리에서 진짜 열 이름 꺼내기 (안전장치 포함)
-            budget_col = budget_menu_mapping.get(selected_b_key, selected_b_key)
-            actual_col = actual_menu_mapping.get(selected_a_key, selected_a_key)
+            # 화면에 표시된 예쁜 이름(TOTAL)을 엑셀의 진짜 이름(2026, 합계)으로 몰래 바꿔서 계산
+            budget_col = budget_real_cols[selected_b_key]
+            actual_col = actual_real_cols[selected_a_key]
 
             # 5. 금액 데이터 정제
             df_budget[budget_col] = pd.to_numeric(df_budget[budget_col].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
