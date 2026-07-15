@@ -15,7 +15,7 @@ try:
         'SM_SDO': '생산지원팀', 'SM_SVO': '밸리데이션팀', 'SM_QSF': '품질관리6팀', 'SM_SQA': '품질보증3팀'
     }
 
-    # 1. 파일 자동 탐색 (.xlsx 와 .csv 둘 다 지원하여 오류를 방지합니다)
+    # 1. 파일 자동 탐색
     budget_file = next((f for f in all_files if "예산" in f and (f.endswith('.xlsx') or f.endswith('.csv'))), None)
     actual_file = next((f for f in all_files if ("경비집행" in f or "집행" in f) and (f.endswith('.xlsx') or f.endswith('.csv'))), None)
 
@@ -25,7 +25,6 @@ try:
         # 2. 예산 데이터 로드
         df_budget_list = []
         if budget_file.endswith('.xlsx'):
-            # [엑셀일 경우] 필요한 7개 시트만 골라서 3번째 줄(header=2)부터 읽기
             xl = pd.ExcelFile(budget_file)
             for sheet in cc_mapping.keys():
                 if sheet in xl.sheet_names:
@@ -35,7 +34,6 @@ try:
                         df['최종팀명'] = cc_mapping[sheet]
                         df_budget_list.append(df)
         else:
-            # [CSV일 경우]
             budget_csv_files = [f for f in all_files if "예산" in f and f.endswith('.csv')]
             for f in budget_csv_files:
                 team_code = next((code for code in cc_mapping.keys() if code in f), None)
@@ -67,24 +65,32 @@ try:
                 )
 
         if not df_budget.empty and not df_actual.empty:
-            # 4. 사이드바 - 열 매칭 자동화
+            # 4. 사이드바 - 열 매칭 및 필터링
             st.sidebar.markdown("### ⚙️ 데이터 매칭")
             b_cols = [c for c in df_budget.columns.tolist() if 'Unnamed' not in str(c)]
             a_cols = [c for c in df_actual.columns.tolist() if 'Unnamed' not in str(c)]
 
-            # 기본값 설정: 예산은 '2026.05' 또는 '2026', 집행은 '05월'을 자동으로 먼저 찾습니다.
-            default_idx_b = next((i for i, c in enumerate(b_cols) if '2026.05' in str(c)), 
-                                 next((i for i, c in enumerate(b_cols) if '2026' in str(c)), 0))
+            # ★ [안전 수정] 드롭다운에서 불필요한 메뉴 제외하고 딱 원하는 항목만 남기기 ★
+            allowed_budget = ['2026', '2026.01', '2026.02', '2026.03', '2026.04', '2026.05']
+            b_cols_filtered = [c for c in b_cols if str(c).strip() in allowed_budget]
+            
+            # 안전장치 (예외 상황 대비)
+            if not b_cols_filtered:
+                b_cols_filtered = b_cols
+
+            # 기본 매칭 인덱스 설정
+            default_idx_b = next((i for i, c in enumerate(b_cols_filtered) if '2026.05' in str(c)), 
+                                 next((i for i, c in enumerate(b_cols_filtered) if '2026' in str(c)), 0))
             default_idx_a = next((i for i, c in enumerate(a_cols) if '05월' in str(c)), 0)
 
-            budget_col = st.sidebar.selectbox("💰 [예산] 금액 열 선택", b_cols, index=default_idx_b)
+            budget_col = st.sidebar.selectbox("💰 [예산] 금액 열 선택", b_cols_filtered, index=default_idx_b)
             actual_col = st.sidebar.selectbox("💸 [집행] 금액 열 선택", a_cols, index=default_idx_a)
 
-            # 5. 금액 데이터 정제 (쉼표 제거 및 숫자로 변환)
+            # 5. 금액 데이터 정제
             df_budget[budget_col] = pd.to_numeric(df_budget[budget_col].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
             df_actual[actual_col] = pd.to_numeric(df_actual[actual_col].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
 
-            # 6. 그룹화 및 병합 (팀별 합계 계산)
+            # 6. 그룹화 및 병합
             df_b_grouped = df_budget.groupby('최종팀명')[budget_col].sum().reset_index()
             df_a_grouped = df_actual.groupby('최종팀명')[actual_col].sum().reset_index()
 
@@ -108,7 +114,7 @@ try:
             else:
                 df_display = df_merged.copy()
 
-            # KPI 요약 지표 표시
+            # KPI 요약 지표
             st.markdown("### 💡 요약 지표")
             total_budget = df_display['예산금액'].sum()
             total_actual = df_display['집행금액'].sum()
