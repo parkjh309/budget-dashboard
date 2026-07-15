@@ -9,7 +9,7 @@ st.title("📊 송도캠퍼스 팀별 파이낸셜 네비게이터")
 try:
     all_files = os.listdir('.')
     
-    # 7개 팀 매칭 정보 (시트 이름 및 CC코드 기준)
+    # 7개 팀 매칭 정보
     cc_mapping = {
         'SM_SMF': '송도공장장', 'SM_SAO': '제조팀', 'SM_SHO': '설비관리팀',
         'SM_SDO': '생산지원팀', 'SM_SVO': '밸리데이션팀', 'SM_QSF': '품질관리6팀', 'SM_SQA': '품질보증3팀'
@@ -20,8 +20,6 @@ try:
     actual_file = next((f for f in all_files if ("경비집행" in f or "집행" in f) and (f.endswith('.xlsx') or f.endswith('.csv'))), None)
 
     if budget_file and actual_file:
-        st.success(f"✅ 데이터를 성공적으로 찾았습니다!\n* 예산 파일: `{budget_file}`\n* 집행 파일: `{actual_file}`")
-
         # 2. 예산 데이터 로드
         df_budget_list = []
         if budget_file.endswith('.xlsx'):
@@ -56,7 +54,6 @@ try:
             if '항목코드' in df_actual.columns:
                 df_actual = df_actual[df_actual['항목코드'].notna()]
             
-            # CC코드를 최종팀명으로 매칭
             if 'CC코드' in df_actual.columns:
                 df_actual['최종팀명'] = df_actual['CC코드'].astype(str).str.strip().map(cc_mapping)
             elif 'CC명' in df_actual.columns:
@@ -64,33 +61,39 @@ try:
                     lambda x: next((v for k, v in cc_mapping.items() if k in str(x) or v in str(x)), None)
                 )
 
+            # ★ [핵심 추가] 집행 파일에 '합계' 열이 없으면 파이썬이 1월~5월을 더해서 자동으로 만듭니다! ★
+            actual_month_cols = [c for c in df_actual.columns if '월' in str(c)]
+            if '합계' not in df_actual.columns and actual_month_cols:
+                # 숫자 형식으로 변환 후 합계 계산
+                for mc in actual_month_cols:
+                    df_actual[mc] = pd.to_numeric(df_actual[mc].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
+                df_actual['합계'] = df_actual[actual_month_cols].sum(axis=1)
+
         if not df_budget.empty and not df_actual.empty:
             # 4. 사이드바 - 열 매칭 및 필터링
             st.sidebar.markdown("### ⚙️ 데이터 매칭")
             b_cols = [c for c in df_budget.columns.tolist() if 'Unnamed' not in str(c)]
             a_cols = [c for c in df_actual.columns.tolist() if 'Unnamed' not in str(c)]
 
-            # ----------------- [TOTAL 매칭 및 이름 단순화 작업] -----------------
-            # 1) 예산 열 가공 (실제 예산 파일에는 '2026'이라는 열이 TOTAL 역할을 함)
+            # 예산 메뉴 매칭
             budget_menu_mapping = {}
             for col in b_cols:
                 col_str = str(col).strip()
                 if col_str == '2026':
-                    budget_menu_mapping['TOTAL'] = col  # 화면엔 TOTAL로 표시하고 실제 데이터는 '2026' 사용
+                    budget_menu_mapping['TOTAL'] = col
                 elif col_str in ['2026.01', '2026.02', '2026.03', '2026.04', '2026.05']:
                     budget_menu_mapping[col_str] = col
 
-            # 2) 집행 열 가공 (실제 집행 파일의 '합계'를 찾아 TOTAL로 매칭)
+            # 집행 메뉴 매칭 (이제 파이썬이 만든 '합계' 열을 무조건 찾습니다!)
             actual_menu_mapping = {}
             for col in a_cols:
                 col_str = str(col).strip()
                 if '합계' in col_str or 'TOTAL' in col_str.upper():
-                    actual_menu_mapping['TOTAL'] = col  # 화면엔 TOTAL로 표시하고 실제 데이터는 '합계' 사용
+                    actual_menu_mapping['TOTAL'] = col
                 elif any(m in col_str for m in ['01월', '02월', '03월', '04월', '05월']):
                     actual_menu_mapping[col_str] = col
-            # ------------------------------------------------------------------
 
-            # 드롭다운에 띄울 키 목록 생성 (TOTAL을 맨 앞으로 보냄)
+            # 드롭다운 키 정렬 (TOTAL을 무조건 맨 위로)
             b_keys = sorted(list(budget_menu_mapping.keys()))
             if 'TOTAL' in b_keys:
                 b_keys.remove('TOTAL')
@@ -101,13 +104,16 @@ try:
                 a_keys.remove('TOTAL')
                 a_keys = ['TOTAL'] + a_keys
 
-            # 드롭다운 생성
+            # 안전장치 (메뉴가 텅 비었을 경우 대비)
+            if not b_keys: b_keys = b_cols
+            if not a_keys: a_keys = a_cols
+
             selected_b_key = st.sidebar.selectbox("💰 [예산] 금액 열 선택", b_keys, index=0)
             selected_a_key = st.sidebar.selectbox("💸 [집행] 금액 열 선택", a_keys, index=0)
 
-            # 실제 파이썬이 계산할 때 사용할 진짜 열 이름 가져오기
-            budget_col = budget_menu_mapping[selected_b_key]
-            actual_col = actual_menu_mapping[selected_a_key]
+            # 딕셔너리에서 진짜 열 이름 꺼내기 (안전장치 포함)
+            budget_col = budget_menu_mapping.get(selected_b_key, selected_b_key)
+            actual_col = actual_menu_mapping.get(selected_a_key, selected_a_key)
 
             # 5. 금액 데이터 정제
             df_budget[budget_col] = pd.to_numeric(df_budget[budget_col].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
@@ -148,7 +154,6 @@ try:
             col2.metric("누적 집행 금액", f"{total_actual:,.0f} 원")
             col3.metric("평균 집행률", f"{avg_rate:.1f} %")
 
-            # 한글 금액 단위 변환기
             def convert_to_korean_amount(val):
                 if val >= 100000000: return f"{val / 100000000:.1f}억 원"
                 elif val >= 10000: return f"{val / 10000:,.0f}만 원"
@@ -169,12 +174,7 @@ try:
                 t.text = df_plot['예산금액_라벨'] if t.name == '예산금액' else df_plot['집행금액_라벨']
                 t.textposition = 'outside'
 
-            fig.update_layout(
-                xaxis_title="팀명", 
-                yaxis_title="금액 (원)", 
-                legend_title="구분", 
-                yaxis=dict(tickformat=",.0f")
-            )
+            fig.update_layout(xaxis_title="팀명", yaxis_title="금액 (원)", legend_title="구분", yaxis=dict(tickformat=",.0f"))
             st.plotly_chart(fig, use_container_width=True)
 
             # 9. 상세 표
@@ -184,7 +184,6 @@ try:
             st.error("데이터 조립 과정에서 오류가 발생했거나 데이터가 비어있습니다.")
     else:
         st.error("❌ 깃허브 폴더에서 '예산' 또는 '경비집행' 파일을 찾을 수 없습니다.")
-        st.write("현재 폴더 파일 목록:", all_files)
 
 except Exception as e:
     st.error(f"⚠️ 데이터 처리 중 오류가 발생했습니다: {e}")
