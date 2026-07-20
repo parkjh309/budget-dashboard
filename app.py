@@ -1,3 +1,13 @@
+아이고, 잘 진행되다가 갑자기 에러 창이 떡하니 떠서 많이 놀라셨죠! 😭 사진을 올려주신 덕분에 원인을 1초 만에 찾았습니다.
+
+에러 메시지를 보니, 파이썬이 데이터를 한 줄씩 읽어오는 명령어(itertuples)를 사용했는데, 이 명령어가 '계정'이나 '항목구분명' 같은 한글로 된 제목을 읽다가 충돌을 일으킨 것입니다. (서버 환경에 따라 한글 이름을 제대로 소화하지 못하는 고질적인 버그입니다.)
+
+이런 깐깐한 에러를 완벽하게 피해갈 수 있는 가장 안전하고 튼튼한 명령어(iterrows)로 해당 부분을 싹 고쳤습니다. 다른 부분은 전혀 건드리지 않았으니 안심하시고 다시 한번만 덮어써 주세요!
+
+🛠️ [한글 충돌 에러 해결] Top 3 랭킹 최종 코드 (app.py)
+깃허브의 app.py 연필 아이콘을 누르시고, Ctrl + A로 기존 내용을 완전히 싹 지우신 뒤 아래 코드를 그대로 덮어써 주세요.
+
+Python
 import streamlit as st
 import pandas as pd
 import plotly.express as px
@@ -239,7 +249,7 @@ try:
             )
             st.plotly_chart(fig, use_container_width=True)
 
-            # --- [세부 항목 분석 구역 (TOP 3 랭킹 포함)] ---
+            # --- [세부 항목 분석 구역 (TOP 3 랭킹 - 안전한 코드로 수정)] ---
             st.markdown("---")
             title_text = "전체 팀" if selected_team == "전체보기" else selected_team
             st.markdown(f"### 🔍 {title_text} - 항목별(제조경비 세부) 상세 분석")
@@ -261,16 +271,16 @@ try:
                         fig_b.update_traces(textposition='inside', textinfo='percent+label')
                         st.plotly_chart(fig_b, use_container_width=True)
 
-                        # 2. 예산 TOP 3 랭킹 박스 추가
+                        # 2. 예산 TOP 3 랭킹 박스 추가 (안전한 iterrows 방식 적용)
                         top3_b = df_b_grouped_cat.head(3)
                         total_b_amt = df_b_cat[budget_col].sum()
                         medals = ['🥇', '🥈', '🥉']
                         
                         html_b = "<div style='background-color: #f0f8ff; padding: 15px; border-radius: 10px; border-left: 5px solid #1f77b4; margin-top: -20px;'>"
                         html_b += "<h4 style='margin-top:0px; margin-bottom:15px; color:#1f77b4;'>🏆 예산 비중 TOP 3</h4>"
-                        for i, row in enumerate(top3_b.itertuples()):
-                            acc_name = getattr(row, '계정')
-                            amt = getattr(row, budget_col)
+                        for i, (idx, row) in enumerate(top3_b.iterrows()):
+                            acc_name = row['계정']
+                            amt = row[budget_col]
                             pct = (amt / total_b_amt) * 100 if total_b_amt > 0 else 0
                             html_b += f"<div style='font-size: 20px; font-weight: bold; margin-bottom: 10px;'>{medals[i]} {acc_name} <span style='font-size: 16px; color: #555;'>({pct:.1f}%)</span></div>"
                         html_b += "</div>"
@@ -296,16 +306,16 @@ try:
                         fig_a.update_traces(textposition='inside', textinfo='percent+label')
                         st.plotly_chart(fig_a, use_container_width=True)
 
-                        # 2. 집행 TOP 3 랭킹 박스 추가
+                        # 2. 집행 TOP 3 랭킹 박스 추가 (안전한 iterrows 방식 적용)
                         top3_a = df_a_grouped_cat.head(3)
                         total_a_amt = df_a_cat[actual_col].sum()
                         medals = ['🥇', '🥈', '🥉']
                         
                         html_a = "<div style='background-color: #fffaf0; padding: 15px; border-radius: 10px; border-left: 5px solid #ff7f0e; margin-top: -20px;'>"
                         html_a += "<h4 style='margin-top:0px; margin-bottom:15px; color:#ff7f0e;'>🏆 집행 비중 TOP 3</h4>"
-                        for i, row in enumerate(top3_a.itertuples()):
-                            acc_name = getattr(row, '항목구분명')
-                            amt = getattr(row, actual_col)
+                        for i, (idx, row) in enumerate(top3_a.iterrows()):
+                            acc_name = row['항목구분명']
+                            amt = row[actual_col]
                             pct = (amt / total_a_amt) * 100 if total_a_amt > 0 else 0
                             html_a += f"<div style='font-size: 20px; font-weight: bold; margin-bottom: 10px;'>{medals[i]} {acc_name} <span style='font-size: 16px; color: #555;'>({pct:.1f}%)</span></div>"
                         html_a += "</div>"
