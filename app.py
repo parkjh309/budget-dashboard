@@ -1,4 +1,3 @@
-
 import streamlit as st
 import pandas as pd
 import plotly.express as px
@@ -90,10 +89,14 @@ try:
             df_budget.columns = [str(c).strip() for c in df_budget.columns]
             df_actual.columns = [str(c).strip() for c in df_actual.columns]
 
-            # 4. 사이드바 데이터 매칭
-            st.sidebar.markdown("### ⚙️ 데이터 매칭")
-            display_names = ['TOTAL', '01월', '02월', '03월', '04월', '05월', '06월', '07월', '08월', '09월', '10월', '11월', '12월']
+            # ★★★ [메뉴 신설] 좌측 데이터 매칭 영역에 분기별 예실분석 항목 추가 ★★★
+            st.sidebar.markdown("### ⚙️ 데이터 매칭 및 예실분석")
+            analysis_type = st.sidebar.selectbox(
+                "📅 분석 주기 선택", 
+                ['월별/통합 분석', '1분기 (1~3월)', '2분기 (4~6월)', '3분기 (7~9월)', '4분기 (10~12월)']
+            )
             
+            display_names = ['TOTAL', '01월', '02월', '03월', '04월', '05월', '06월', '07월', '08월', '09월', '10월', '11월', '12월']
             budget_real_cols = {
                 'TOTAL': '2026', '01월': '2026.01', '02월': '2026.02', '03월': '2026.03', 
                 '04월': '2026.04', '05월': '2026.05', '06월': '2026.06', '07월': '2026.07',
@@ -107,20 +110,53 @@ try:
             for i in range(1, 13):
                 actual_real_cols[f"{i:02d}월"] = f"{i:02d}월"
 
-            b_keys = [k for k in display_names if budget_real_cols.get(k) in df_budget.columns]
-            a_keys = [k for k in display_names if actual_real_cols.get(k) in df_actual.columns]
+            # 1. 일반 월별/통합 분석 선택 시 (기존 수동 드롭다운 노출)
+            if analysis_type == '월별/통합 분석':
+                b_keys = [k for k in display_names if budget_real_cols.get(k) in df_budget.columns]
+                a_keys = [k for k in display_names if actual_real_cols.get(k) in df_actual.columns]
+                
+                if not b_keys: b_keys = df_budget.columns.tolist()
+                if not a_keys: a_keys = df_actual.columns.tolist()
+
+                selected_b_key = st.sidebar.selectbox("💰 [예산] 금액 열 선택", b_keys, index=0)
+                selected_a_key = st.sidebar.selectbox("💸 [집행] 금액 열 선택", a_keys, index=0)
+
+                budget_col = budget_real_cols.get(selected_b_key, selected_b_key)
+                actual_col = actual_real_cols.get(selected_a_key, selected_a_key)
+
+                df_budget[budget_col] = pd.to_numeric(df_budget[budget_col].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
+                df_actual[actual_col] = pd.to_numeric(df_actual[actual_col].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
             
-            if not b_keys: b_keys = df_budget.columns.tolist()
-            if not a_keys: a_keys = df_actual.columns.tolist()
+            # 2. 분기 선택 시 (드롭다운 숨기고 파이썬이 알아서 3달치 묶어서 자동 합산)
+            else:
+                if '1분기' in analysis_type: months = [1, 2, 3]
+                elif '2분기' in analysis_type: months = [4, 5, 6]
+                elif '3분기' in analysis_type: months = [7, 8, 9]
+                else: months = [10, 11, 12]
 
-            selected_b_key = st.sidebar.selectbox("💰 [예산] 금액 열 선택", b_keys, index=0)
-            selected_a_key = st.sidebar.selectbox("💸 [집행] 금액 열 선택", a_keys, index=0)
+                # 예산 파일에서 분기에 해당하는 열들 찾기
+                b_cols_to_sum = []
+                for m in months:
+                    possible_cols = [f"2026.{m:02d}", f"2026.{m}"]
+                    if m == 10: possible_cols.extend(['2026.1', "2026.'10"])
+                    found_col = next((c for c in possible_cols if c in df_budget.columns), None)
+                    if found_col:
+                        b_cols_to_sum.append(found_col)
 
-            budget_col = budget_real_cols.get(selected_b_key, selected_b_key)
-            actual_col = actual_real_cols.get(selected_a_key, selected_a_key)
+                # 집행 파일에서 분기에 해당하는 열들 찾기
+                a_cols_to_sum = [f"{m:02d}월" for m in months if f"{m:02d}월" in df_actual.columns]
 
-            df_budget[budget_col] = pd.to_numeric(df_budget[budget_col].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
-            df_actual[actual_col] = pd.to_numeric(df_actual[actual_col].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
+                # 데이터 정제 후 자동 합산용 가상 열 생성
+                for col in b_cols_to_sum:
+                    df_budget[col] = pd.to_numeric(df_budget[col].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
+                for col in a_cols_to_sum:
+                    df_actual[col] = pd.to_numeric(df_actual[col].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
+
+                df_budget['🎯분기예산'] = df_budget[b_cols_to_sum].sum(axis=1) if b_cols_to_sum else 0
+                df_actual['🎯분기집행'] = df_actual[a_cols_to_sum].sum(axis=1) if a_cols_to_sum else 0
+
+                budget_col = '🎯분기예산'
+                actual_col = '🎯분기집행'
 
             # 6. 그룹화 및 병합
             df_b_grouped = df_budget.groupby('최종팀명')[budget_col].sum().reset_index()
@@ -240,7 +276,7 @@ try:
             )
             st.plotly_chart(fig, use_container_width=True)
 
-            # --- [세부 항목 분석 구역 (TOP 3 랭킹 - 안전한 코드로 수정)] ---
+            # --- [세부 항목 분석 구역 (TOP 3 랭킹)] ---
             st.markdown("---")
             title_text = "전체 팀" if selected_team == "전체보기" else selected_team
             st.markdown(f"### 🔍 {title_text} - 항목별(제조경비 세부) 상세 분석")
@@ -253,7 +289,6 @@ try:
                 if '계정' in df_b_detail.columns:
                     df_b_cat = df_b_detail[df_b_detail[budget_col] > 0]
                     if not df_b_cat.empty:
-                        # 1. 원형 차트 그리기
                         df_b_grouped_cat = df_b_cat.groupby('계정')[budget_col].sum().reset_index()
                         df_b_grouped_cat = df_b_grouped_cat.sort_values(by=budget_col, ascending=False).head(10)
                         
@@ -262,7 +297,6 @@ try:
                         fig_b.update_traces(textposition='inside', textinfo='percent+label')
                         st.plotly_chart(fig_b, use_container_width=True)
 
-                        # 2. 예산 TOP 3 랭킹 박스 추가 (안전한 iterrows 방식 적용)
                         top3_b = df_b_grouped_cat.head(3)
                         total_b_amt = df_b_cat[budget_col].sum()
                         medals = ['🥇', '🥈', '🥉']
@@ -288,7 +322,6 @@ try:
                 if '항목구분명' in df_a_detail.columns:
                     df_a_cat = df_a_detail[df_a_detail[actual_col] > 0]
                     if not df_a_cat.empty:
-                        # 1. 원형 차트 그리기
                         df_a_grouped_cat = df_a_cat.groupby('항목구분명')[actual_col].sum().reset_index()
                         df_a_grouped_cat = df_a_grouped_cat.sort_values(by=actual_col, ascending=False).head(10)
                         
@@ -297,7 +330,6 @@ try:
                         fig_a.update_traces(textposition='inside', textinfo='percent+label')
                         st.plotly_chart(fig_a, use_container_width=True)
 
-                        # 2. 집행 TOP 3 랭킹 박스 추가 (안전한 iterrows 방식 적용)
                         top3_a = df_a_grouped_cat.head(3)
                         total_a_amt = df_a_cat[actual_col].sum()
                         medals = ['🥇', '🥈', '🥉']
