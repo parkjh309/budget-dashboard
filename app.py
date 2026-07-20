@@ -306,4 +306,23 @@ try:
                         for i, row in enumerate(top3_a.itertuples()):
                             acc_name = getattr(row, '항목구분명')
                             amt = getattr(row, actual_col)
-                            pct = (amt / total_
+                            pct = (amt / total_a_amt) * 100 if total_a_amt > 0 else 0
+                            html_a += f"<div style='font-size: 20px; font-weight: bold; margin-bottom: 10px;'>{medals[i]} {acc_name} <span style='font-size: 16px; color: #555;'>({pct:.1f}%)</span></div>"
+                        html_a += "</div>"
+                        st.markdown(html_a, unsafe_allow_html=True)
+                        
+                    else:
+                        st.info("선택된 기간의 집행 세부 데이터가 없습니다.")
+                else:
+                    st.warning("집행 파일에 '항목구분명' 열을 찾을 수 없어 분석할 수 없습니다.")
+
+            st.markdown("---")
+            st.markdown("### 📋 상세 데이터")
+            st.dataframe(df_display.style.format({'예산금액': '{:,.0f}', '집행금액': '{:,.0f}', '집행률(%)': '{:.1f}%'}))
+        else:
+            st.error("데이터 조립 과정에서 오류가 발생했거나 데이터가 비어있습니다.")
+    else:
+        st.error("❌ 깃허브 폴더에서 '예산' 또는 '경비집행' 파일을 찾을 수 없습니다.")
+
+except Exception as e:
+    st.error(f"⚠️ 데이터 처리 중 오류가 발생했습니다: {e}")
