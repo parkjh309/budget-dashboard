@@ -64,7 +64,6 @@ try:
                     lambda x: next((v for k, v in cc_mapping.items() if k in str(x) or v in str(x)), None)
                 )
 
-            # 집행 파일에 TOTAL(합계)이 없으면 알아서 더하기
             actual_month_cols = [f"{i:02d}월" for i in range(1, 13) if f"{i:02d}월" in df_actual.columns]
             if '합계' not in df_actual.columns and actual_month_cols:
                 for mc in actual_month_cols:
@@ -75,7 +74,6 @@ try:
             df_budget.columns = [str(c).strip() for c in df_budget.columns]
             df_actual.columns = [str(c).strip() for c in df_actual.columns]
 
-            # 4. 사이드바 - 메뉴 매칭
             st.sidebar.markdown("### ⚙️ 데이터 매칭")
             display_names = ['TOTAL', '01월', '02월', '03월', '04월', '05월', '06월', '07월', '08월', '09월', '10월', '11월', '12월']
             
@@ -104,7 +102,6 @@ try:
             budget_col = budget_real_cols.get(selected_b_key, selected_b_key)
             actual_col = actual_real_cols.get(selected_a_key, selected_a_key)
 
-            # 5. 금액 데이터 정제 및 병합
             df_budget[budget_col] = pd.to_numeric(df_budget[budget_col].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
             df_actual[actual_col] = pd.to_numeric(df_actual[actual_col].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
 
@@ -122,7 +119,7 @@ try:
                 lambda row: (row['집행금액'] / row['예산금액'] * 100) if row['예산금액'] > 0 else 0, axis=1
             ).round(1)
 
-            # ★★★ [버튼 클릭 방식] 수동 발송 알림 시스템 ★★★
+            # ★★★ [업그레이드] 비밀 금고를 활용한 메일 발송 ★★★
             st.sidebar.markdown("---")
             st.sidebar.markdown("### 🔐 관리자 인증")
             admin_password = st.sidebar.text_input("개발자 암호를 입력하세요", type="password")
@@ -131,17 +128,20 @@ try:
                 st.sidebar.markdown("### 📧 수동 알림 발송 (인증됨)")
                 
                 alert_threshold = st.sidebar.slider("알림 기준 집행률(%)", 50, 100, 80)
-                sender_email = st.sidebar.text_input("보내는 사람 (Gmail)")
-                sender_pw = st.sidebar.text_input("Gmail 앱 비밀번호 16자리", type="password")
+                
+                # 💡 보내는 사람과 비밀번호 입력 칸이 깔끔하게 사라졌습니다!
                 receiver_email = st.sidebar.text_input("받는 사람 메일")
 
-                # 발송 버튼 (이 버튼을 누를 때만 메일이 날아갑니다!)
                 if st.sidebar.button("📩 초과 알림 메일 발송하기"):
-                    if sender_email and sender_pw and receiver_email:
-                        over_budget_teams = df_merged[df_merged['집행률(%)'] >= alert_threshold]['팀명'].tolist()
-                        
-                        if over_budget_teams:
-                            try:
+                    if receiver_email:
+                        try:
+                            # Streamlit 비밀 금고(Secrets)에서 정보를 몰래 꺼내옵니다.
+                            sender_email = st.secrets["sender_email"]
+                            sender_pw = st.secrets["sender_pw"]
+                            
+                            over_budget_teams = df_merged[df_merged['집행률(%)'] >= alert_threshold]['팀명'].tolist()
+                            
+                            if over_budget_teams:
                                 msg = MIMEMultipart()
                                 msg['From'] = sender_email
                                 msg['To'] = receiver_email
@@ -162,16 +162,17 @@ try:
                                 server.quit()
                                 
                                 st.sidebar.success(f"✅ {len(over_budget_teams)}개 팀에 대한 경고 메일 발송 완료!")
-                            except Exception as e:
-                                st.sidebar.error("메일 발송 실패: 입력한 정보를 다시 확인해주세요.")
-                        else:
-                            st.sidebar.info("현재 기준치를 초과한 팀이 없습니다. (메일 발송 생략)")
+                            else:
+                                st.sidebar.info("현재 기준치를 초과한 팀이 없습니다. (발송 생략)")
+                        except KeyError:
+                            st.sidebar.error("⚠️ Streamlit Secrets에 발송용 이메일 정보가 저장되어 있지 않습니다!")
+                        except Exception as e:
+                            st.sidebar.error("메일 발송 실패: 메일 주소가 정확한지 확인해 주세요.")
                     else:
-                        st.sidebar.warning("⚠️ 메일 주소와 앱 비밀번호를 모두 입력해주세요.")
+                        st.sidebar.warning("⚠️ 받는 사람 메일 주소를 입력해주세요.")
             elif admin_password != "":
                 st.sidebar.error("❌ 암호가 올바르지 않습니다.")
 
-            # 7. 대시보드 화면 구성
             st.markdown("---")
             selected_team = st.selectbox("📌 조회할 팀을 선택하세요", ["전체보기"] + list(cc_mapping.values()))
 
@@ -180,7 +181,6 @@ try:
             else:
                 df_display = df_merged.copy()
 
-            # KPI 요약 지표
             st.markdown("### 💡 요약 지표")
             total_budget = df_display['예산금액'].sum()
             total_actual = df_display['집행금액'].sum()
@@ -201,7 +201,6 @@ try:
             df_plot['예산금액_라벨'] = df_plot['예산금액'].apply(convert_to_korean_amount)
             df_plot['집행금액_라벨'] = df_plot['집행금액'].apply(convert_to_korean_amount)
 
-            # 8. 바 차트 시각화
             st.markdown("### 📈 예산 대비 집행 현황")
             fig = px.bar(
                 df_plot, x='팀명', y=['예산금액', '집행금액'], barmode='group',
@@ -214,7 +213,6 @@ try:
             fig.update_layout(xaxis_title="팀명", yaxis_title="금액 (원)", legend_title="구분", yaxis=dict(tickformat=",.0f"))
             st.plotly_chart(fig, use_container_width=True)
 
-            # 9. 상세 표
             st.markdown("### 📋 상세 데이터")
             st.dataframe(df_display.style.format({'예산금액': '{:,.0f}', '집행금액': '{:,.0f}', '집행률(%)': '{:.1f}%'}))
         else:
