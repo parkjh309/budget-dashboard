@@ -65,6 +65,7 @@ try:
                     lambda x: next((v for k, v in cc_mapping.items() if k in str(x) or v in str(x)), None)
                 )
 
+            # 집행 파일에 TOTAL(합계)이 없으면 알아서 더하기
             actual_month_cols = [f"{i:02d}월" for i in range(1, 13) if f"{i:02d}월" in df_actual.columns]
             if '합계' not in df_actual.columns and actual_month_cols:
                 for mc in actual_month_cols:
@@ -95,8 +96,8 @@ try:
             b_keys = [k for k in display_names if budget_real_cols.get(k) in df_budget.columns]
             a_keys = [k for k in display_names if actual_real_cols.get(k) in df_actual.columns]
             
-            if not b_keys: b_keys = [col for col in df_budget.columns if 'Unnamed' not in col]
-            if not a_keys: a_keys = [col for col in df_actual.columns if 'Unnamed' not in col]
+            if not b_keys: b_keys = df_budget.columns.tolist()
+            if not a_keys: a_keys = df_actual.columns.tolist()
 
             selected_b_key = st.sidebar.selectbox("💰 [예산] 금액 열 선택", b_keys, index=0)
             selected_a_key = st.sidebar.selectbox("💸 [집행] 금액 열 선택", a_keys, index=0)
@@ -122,72 +123,72 @@ try:
                 lambda row: (row['집행금액'] / row['예산금액'] * 100) if row['예산금액'] > 0 else 0, axis=1
             ).round(1)
 
-            # ★★★ [새로 추가된 기능] 이메일 자동 알림 시스템 ★★★
+            # ★★★ [보안 업그레이드] 개발자 전용 관리자 자물쇠 ★★★
             st.sidebar.markdown("---")
-            st.sidebar.markdown("### 📧 스마트 자동 알림")
-            st.sidebar.caption("집행률 초과 시 지정된 메일로 월 1회 자동 발송합니다.")
-            
-            enable_email = st.sidebar.toggle("알림 기능 켜기")
-            if enable_email:
-                alert_threshold = st.sidebar.slider("알림 기준 집행률(%)", 50, 100, 80)
-                sender_email = st.sidebar.text_input("보내는 사람 (Gmail)")
-                sender_pw = st.sidebar.text_input("Gmail 앱 비밀번호 16자리", type="password")
-                receiver_email = st.sidebar.text_input("받는 사람 메일")
+            st.sidebar.markdown("### 🔐 관리자 인증")
+            admin_password = st.sidebar.text_input("개발자 암호를 입력하세요", type="password")
 
-                if sender_email and sender_pw and receiver_email:
-                    # 기준치를 초과한 팀 찾기
-                    over_budget_teams = df_merged[df_merged['집행률(%)'] >= alert_threshold]['팀명'].tolist()
-                    
-                    if over_budget_teams:
-                        current_month = datetime.now().strftime("%Y-%m")
-                        log_file = "email_log.csv"
+            # 비밀번호가 'admin1234' 와 일치할 때만 알림 설정 메뉴가 노출됩니다.
+            if admin_password == "admin1234":
+                st.sidebar.markdown("### 📧 스마트 자동 알림 (인증됨)")
+                enable_email = st.sidebar.toggle("알림 기능 켜기", value=True)
+                
+                if enable_email:
+                    alert_threshold = st.sidebar.slider("알림 기준 집행률(%)", 50, 100, 80)
+                    sender_email = st.sidebar.text_input("보내는 사람 (Gmail)")
+                    sender_pw = st.sidebar.text_input("Gmail 앱 비밀번호 16자리", type="password")
+                    receiver_email = st.sidebar.text_input("받는 사람 메일")
+
+                    if sender_email and sender_pw and receiver_email:
+                        over_budget_teams = df_merged[df_merged['집행률(%)'] >= alert_threshold]['팀명'].tolist()
                         
-                        # 메모장(로그) 열어보기
-                        if os.path.exists(log_file):
-                            log_df = pd.read_csv(log_file)
+                        if over_budget_teams:
+                            current_month = datetime.now().strftime("%Y-%m")
+                            log_file = "email_log.csv"
+                            
+                            if os.path.exists(log_file):
+                                log_df = pd.read_csv(log_file)
+                            else:
+                                log_df = pd.DataFrame(columns=["팀명", "발송월"])
+                            
+                            teams_to_send = []
+                            for team in over_budget_teams:
+                                already_sent = ((log_df['팀명'] == team) & (log_df['발송월'] == current_month)).any()
+                                if not already_sent:
+                                    teams_to_send.append(team)
+                            
+                            if teams_to_send:
+                                try:
+                                    msg = MIMEMultipart()
+                                    msg['From'] = sender_email
+                                    msg['To'] = receiver_email
+                                    msg['Subject'] = f"⚠️ [예산 경고] {len(teams_to_send)}개 팀 집행률 {alert_threshold}% 초과"
+                                    
+                                    body = f"다음 팀들의 예산 집행률이 {alert_threshold}%를 초과했습니다.\n\n"
+                                    for team in teams_to_send:
+                                        rate = df_merged[df_merged['팀명'] == team]['집행률(%)'].values[0]
+                                        body += f"- {team}: {rate}%\n"
+                                    body += "\n자세한 사항은 예산 대시보드를 확인해 주세요."
+                                    
+                                    msg.attach(MIMEText(body, 'plain'))
+                                    
+                                    server = smtplib.SMTP('smtp.gmail.com', 587)
+                                    server.starttls()
+                                    server.login(sender_email, sender_pw)
+                                    server.send_message(msg)
+                                    server.quit()
+                                    
+                                    new_logs = pd.DataFrame({"팀명": teams_to_send, "발송월": [current_month]*len(teams_to_send)})
+                                    log_df = pd.concat([log_df, new_logs], ignore_index=True)
+                                    log_df.to_csv(log_file, index=False)
+                                    
+                                    st.sidebar.success("✅ 초과 알림 메일 발송 완료!")
+                                except Exception as e:
+                                    st.sidebar.error("메일 발송 실패: 정보 확인 요망")
                         else:
-                            log_df = pd.DataFrame(columns=["팀명", "발송월"])
-                        
-                        # 이번 달에 아직 메일을 안 보낸 팀만 걸러내기
-                        teams_to_send = []
-                        for team in over_budget_teams:
-                            already_sent = ((log_df['팀명'] == team) & (log_df['발송월'] == current_month)).any()
-                            if not already_sent:
-                                teams_to_send.append(team)
-                        
-                        # 보낼 팀이 있다면 메일 발송!
-                        if teams_to_send:
-                            try:
-                                msg = MIMEMultipart()
-                                msg['From'] = sender_email
-                                msg['To'] = receiver_email
-                                msg['Subject'] = f"⚠️ [예산 경고] {len(teams_to_send)}개 팀 집행률 {alert_threshold}% 초과"
-                                
-                                body = f"다음 팀들의 예산 집행률이 {alert_threshold}%를 초과했습니다.\n\n"
-                                for team in teams_to_send:
-                                    rate = df_merged[df_merged['팀명'] == team]['집행률(%)'].values[0]
-                                    body += f"- {team}: {rate}%\n"
-                                body += "\n자세한 사항은 예산 대시보드를 확인해 주세요."
-                                
-                                msg.attach(MIMEText(body, 'plain'))
-                                
-                                # 구글 메일 서버 접속 및 발송
-                                server = smtplib.SMTP('smtp.gmail.com', 587)
-                                server.starttls()
-                                server.login(sender_email, sender_pw)
-                                server.send_message(msg)
-                                server.quit()
-                                
-                                # 메모장에 기록 남기기
-                                new_logs = pd.DataFrame({"팀명": teams_to_send, "발송월": [current_month]*len(teams_to_send)})
-                                log_df = pd.concat([log_df, new_logs], ignore_index=True)
-                                log_df.to_csv(log_file, index=False)
-                                
-                                st.sidebar.success("✅ 초과 알림 메일 발송 완료!")
-                            except Exception as e:
-                                st.sidebar.error("메일 발송 실패: 정보가 정확한지 확인해주세요.")
-                    else:
-                        st.sidebar.info("현재 기준치를 초과한 팀이 없습니다.")
+                            st.sidebar.info("현재 기준치를 초과한 팀이 없습니다.")
+            elif admin_password != "":
+                st.sidebar.error("❌ 암호가 올바르지 않습니다.")
 
             # 7. 대시보드 화면 구성
             st.markdown("---")
