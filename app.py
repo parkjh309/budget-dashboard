@@ -105,6 +105,7 @@ try:
             df_budget[budget_col] = pd.to_numeric(df_budget[budget_col].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
             df_actual[actual_col] = pd.to_numeric(df_actual[actual_col].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
 
+            # 6. 그룹화 및 병합
             df_b_grouped = df_budget.groupby('최종팀명')[budget_col].sum().reset_index()
             df_a_grouped = df_actual.groupby('최종팀명')[actual_col].sum().reset_index()
 
@@ -119,26 +120,21 @@ try:
                 lambda row: (row['집행금액'] / row['예산금액'] * 100) if row['예산금액'] > 0 else 0, axis=1
             ).round(1)
 
-            # ★★★ [업그레이드] 비밀 금고를 활용한 메일 발송 ★★★
+            # --- [이메일 발송 기능] ---
             st.sidebar.markdown("---")
             st.sidebar.markdown("### 🔐 관리자 인증")
             admin_password = st.sidebar.text_input("개발자 암호를 입력하세요", type="password")
 
             if admin_password == "admin1234":
                 st.sidebar.markdown("### 📧 수동 알림 발송 (인증됨)")
-                
                 alert_threshold = st.sidebar.slider("알림 기준 집행률(%)", 50, 100, 80)
-                
-                # 💡 보내는 사람과 비밀번호 입력 칸이 깔끔하게 사라졌습니다!
                 receiver_email = st.sidebar.text_input("받는 사람 메일")
 
                 if st.sidebar.button("📩 초과 알림 메일 발송하기"):
                     if receiver_email:
                         try:
-                            # Streamlit 비밀 금고(Secrets)에서 정보를 몰래 꺼내옵니다.
                             sender_email = st.secrets["sender_email"]
                             sender_pw = st.secrets["sender_pw"]
-                            
                             over_budget_teams = df_merged[df_merged['집행률(%)'] >= alert_threshold]['팀명'].tolist()
                             
                             if over_budget_teams:
@@ -154,34 +150,39 @@ try:
                                 body += "\n자세한 사항은 송도캠퍼스 예산 대시보드를 확인해 주세요."
                                 
                                 msg.attach(MIMEText(body, 'plain'))
-                                
                                 server = smtplib.SMTP('smtp.gmail.com', 587)
                                 server.starttls()
                                 server.login(sender_email, sender_pw)
                                 server.send_message(msg)
                                 server.quit()
-                                
-                                st.sidebar.success(f"✅ {len(over_budget_teams)}개 팀에 대한 경고 메일 발송 완료!")
+                                st.sidebar.success(f"✅ {len(over_budget_teams)}개 팀에 경고 메일 발송 완료!")
                             else:
-                                st.sidebar.info("현재 기준치를 초과한 팀이 없습니다. (발송 생략)")
+                                st.sidebar.info("현재 기준치를 초과한 팀이 없습니다.")
                         except KeyError:
-                            st.sidebar.error("⚠️ Streamlit Secrets에 발송용 이메일 정보가 저장되어 있지 않습니다!")
+                            st.sidebar.error("⚠️ Secrets에 이메일 정보가 없습니다!")
                         except Exception as e:
-                            st.sidebar.error("메일 발송 실패: 메일 주소가 정확한지 확인해 주세요.")
+                            st.sidebar.error("메일 발송 실패: 정보를 확인해 주세요.")
                     else:
                         st.sidebar.warning("⚠️ 받는 사람 메일 주소를 입력해주세요.")
             elif admin_password != "":
                 st.sidebar.error("❌ 암호가 올바르지 않습니다.")
 
+            # --- [대시보드 메인 화면] ---
             st.markdown("---")
             selected_team = st.selectbox("📌 조회할 팀을 선택하세요", ["전체보기"] + list(cc_mapping.values()))
 
+            # 선택한 팀 필터링
             if selected_team != "전체보기":
                 df_display = df_merged[df_merged['팀명'] == selected_team].copy()
+                df_b_detail = df_budget[df_budget['최종팀명'] == selected_team].copy()
+                df_a_detail = df_actual[df_actual['최종팀명'] == selected_team].copy()
             else:
                 df_display = df_merged.copy()
+                df_b_detail = df_budget.copy()
+                df_a_detail = df_actual.copy()
 
-            st.markdown("### 💡 요약 지표")
+            # KPI
+            st.markdown("### 💡 팀 통합 요약 지표")
             total_budget = df_display['예산금액'].sum()
             total_actual = df_display['집행금액'].sum()
             avg_rate = (total_actual / total_budget * 100) if total_budget > 0 else 0
@@ -201,7 +202,8 @@ try:
             df_plot['예산금액_라벨'] = df_plot['예산금액'].apply(convert_to_korean_amount)
             df_plot['집행금액_라벨'] = df_plot['집행금액'].apply(convert_to_korean_amount)
 
-            st.markdown("### 📈 예산 대비 집행 현황")
+            # ★★★ [막대 그래프 다이어트 적용 구역] ★★★
+            st.markdown("### 📈 예산 대비 집행 현황 (통합)")
             fig = px.bar(
                 df_plot, x='팀명', y=['예산금액', '집행금액'], barmode='group',
                 color_discrete_sequence=['#1f77b4', '#ff7f0e']
@@ -210,10 +212,62 @@ try:
                 t.text = df_plot['예산금액_라벨'] if t.name == '예산금액' else df_plot['집행금액_라벨']
                 t.textposition = 'outside'
 
-            fig.update_layout(xaxis_title="팀명", yaxis_title="금액 (원)", legend_title="구분", yaxis=dict(tickformat=",.0f"))
+            # 선택된 팀이 1개일 때는 여백을 아주 크게(0.7) 줘서 막대를 날씬하게 만들고, 전체일 때는 적당히(0.2) 줍니다.
+            current_bargap = 0.7 if len(df_plot) == 1 else 0.2
+
+            fig.update_layout(
+                xaxis_title="팀명", 
+                yaxis_title="금액 (원)", 
+                legend_title="구분", 
+                yaxis=dict(tickformat=",.0f"),
+                bargap=current_bargap,  # 동적 여백 적용!
+                height=450  # 위아래로 너무 길어지지 않게 전체 높이 고정
+            )
             st.plotly_chart(fig, use_container_width=True)
 
-            st.markdown("### 📋 상세 데이터")
+            # --- [세부 항목 분석 구역] ---
+            st.markdown("---")
+            title_text = "전체 팀" if selected_team == "전체보기" else selected_team
+            st.markdown(f"### 🔍 {title_text} - 항목별(제조경비 세부) 상세 분석")
+            
+            col_b, col_a = st.columns(2)
+            
+            with col_b:
+                st.markdown("#### 💰 수립 예산 구성비율")
+                if '계정' in df_b_detail.columns:
+                    df_b_cat = df_b_detail[df_b_detail[budget_col] > 0]
+                    if not df_b_cat.empty:
+                        df_b_grouped_cat = df_b_cat.groupby('계정')[budget_col].sum().reset_index()
+                        df_b_grouped_cat = df_b_grouped_cat.sort_values(by=budget_col, ascending=False).head(10)
+                        
+                        fig_b = px.pie(df_b_grouped_cat, values=budget_col, names='계정', hole=0.4, 
+                                       color_discrete_sequence=px.colors.sequential.Blues_r)
+                        fig_b.update_traces(textposition='inside', textinfo='percent+label')
+                        st.plotly_chart(fig_b, use_container_width=True)
+                    else:
+                        st.info("선택된 기간의 예산 세부 데이터가 없습니다.")
+                else:
+                    st.warning("예산 파일에 '계정' 열을 찾을 수 없어 분석할 수 없습니다.")
+
+            with col_a:
+                st.markdown("#### 💸 실제 집행 구성비율")
+                if '항목구분명' in df_a_detail.columns:
+                    df_a_cat = df_a_detail[df_a_detail[actual_col] > 0]
+                    if not df_a_cat.empty:
+                        df_a_grouped_cat = df_a_cat.groupby('항목구분명')[actual_col].sum().reset_index()
+                        df_a_grouped_cat = df_a_grouped_cat.sort_values(by=actual_col, ascending=False).head(10)
+                        
+                        fig_a = px.pie(df_a_grouped_cat, values=actual_col, names='항목구분명', hole=0.4,
+                                       color_discrete_sequence=px.colors.sequential.Oranges_r)
+                        fig_a.update_traces(textposition='inside', textinfo='percent+label')
+                        st.plotly_chart(fig_a, use_container_width=True)
+                    else:
+                        st.info("선택된 기간의 집행 세부 데이터가 없습니다.")
+                else:
+                    st.warning("집행 파일에 '항목구분명' 열을 찾을 수 없어 분석할 수 없습니다.")
+
+            st.markdown("---")
+            st.markdown("### 📋 요약 데이터 표")
             st.dataframe(df_display.style.format({'예산금액': '{:,.0f}', '집행금액': '{:,.0f}', '집행률(%)': '{:.1f}%'}))
         else:
             st.error("데이터 조립 과정에서 오류가 발생했거나 데이터가 비어있습니다.")
