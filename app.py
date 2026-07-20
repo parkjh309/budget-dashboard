@@ -6,10 +6,21 @@ import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
+# 대시보드 페이지 설정 및 제목 수정
 st.set_page_config(page_title="송도캠퍼스 파이낸셜 네비게이터", layout="wide")
-st.title("📊 송도캠퍼스 팀별 파이낸셜 네비게이터")
 
 try:
+    # ★★★ [CI 구역] 사내 보안 규정에 맞춘 파일명으로 수정 ★★★
+    logo_path = '「반출」logo.png'  
+    
+    if os.path.exists(logo_path):
+        # 로고를 사이드바 최상단에 배치합니다.
+        st.sidebar.image(logo_path, width=150) # 로고 너비 조절
+    
+    # 로고 바로 밑에 회사명 "동아ST"를 한 줄로 깔끔하게 배치합니다.
+    st.sidebar.markdown("<h1 style='text-align: center; font-size: 28px; margin-top: -20px;'>동아ST</h1>", unsafe_allow_html=True)
+    st.sidebar.markdown("---") # CI와 데이터 매칭 메뉴 구분선
+
     all_files = os.listdir('.')
     
     # 7개 팀 매칭 정보
@@ -17,6 +28,9 @@ try:
         'SM_SMF': '송도공장장', 'SM_SAO': '제조팀', 'SM_SHO': '설비관리팀',
         'SM_SDO': '생산지원팀', 'SM_SVO': '밸리데이션팀', 'SM_QSF': '품질관리6팀', 'SM_SQA': '품질보증3팀'
     }
+
+    # 대시보드 메인 제목
+    st.title("📊 송도캠퍼스 팀별 파이낸셜 네비게이터")
 
     # 1. 파일 자동 탐색
     budget_file = next((f for f in all_files if "예산" in f and (f.endswith('.xlsx') or f.endswith('.csv'))), None)
@@ -74,6 +88,7 @@ try:
             df_budget.columns = [str(c).strip() for c in df_budget.columns]
             df_actual.columns = [str(c).strip() for c in df_actual.columns]
 
+            # 4. 사이드바 - 메뉴 매칭
             st.sidebar.markdown("### ⚙️ 데이터 매칭")
             display_names = ['TOTAL', '01월', '02월', '03월', '04월', '05월', '06월', '07월', '08월', '09월', '10월', '11월', '12월']
             
@@ -171,7 +186,6 @@ try:
             st.markdown("---")
             selected_team = st.selectbox("📌 조회할 팀을 선택하세요", ["전체보기"] + list(cc_mapping.values()))
 
-            # 선택한 팀 필터링
             if selected_team != "전체보기":
                 df_display = df_merged[df_merged['팀명'] == selected_team].copy()
                 df_b_detail = df_budget[df_budget['최종팀명'] == selected_team].copy()
@@ -181,7 +195,7 @@ try:
                 df_b_detail = df_budget.copy()
                 df_a_detail = df_actual.copy()
 
-            # KPI
+            # KPI 요약 지표
             st.markdown("### 💡 팀 통합 요약 지표")
             total_budget = df_display['예산금액'].sum()
             total_actual = df_display['집행금액'].sum()
@@ -202,7 +216,7 @@ try:
             df_plot['예산금액_라벨'] = df_plot['예산금액'].apply(convert_to_korean_amount)
             df_plot['집행금액_라벨'] = df_plot['집행금액'].apply(convert_to_korean_amount)
 
-            # ★★★ [막대 그래프 다이어트 적용 구역] ★★★
+            # --- [막대 그래프 다이어트 적용 구역] ---
             st.markdown("### 📈 예산 대비 집행 현황 (통합)")
             fig = px.bar(
                 df_plot, x='팀명', y=['예산금액', '집행금액'], barmode='group',
@@ -212,7 +226,6 @@ try:
                 t.text = df_plot['예산금액_라벨'] if t.name == '예산금액' else df_plot['집행금액_라벨']
                 t.textposition = 'outside'
 
-            # 선택된 팀이 1개일 때는 여백을 아주 크게(0.7) 줘서 막대를 날씬하게 만들고, 전체일 때는 적당히(0.2) 줍니다.
             current_bargap = 0.7 if len(df_plot) == 1 else 0.2
 
             fig.update_layout(
@@ -220,8 +233,8 @@ try:
                 yaxis_title="금액 (원)", 
                 legend_title="구분", 
                 yaxis=dict(tickformat=",.0f"),
-                bargap=current_bargap,  # 동적 여백 적용!
-                height=450  # 위아래로 너무 길어지지 않게 전체 높이 고정
+                bargap=current_bargap, 
+                height=450
             )
             st.plotly_chart(fig, use_container_width=True)
 
@@ -267,7 +280,7 @@ try:
                     st.warning("집행 파일에 '항목구분명' 열을 찾을 수 없어 분석할 수 없습니다.")
 
             st.markdown("---")
-            st.markdown("### 📋 요약 데이터 표")
+            st.markdown("### 📋 상세 데이터")
             st.dataframe(df_display.style.format({'예산금액': '{:,.0f}', '집행금액': '{:,.0f}', '집행률(%)': '{:.1f}%'}))
         else:
             st.error("데이터 조립 과정에서 오류가 발생했거나 데이터가 비어있습니다.")
