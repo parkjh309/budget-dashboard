@@ -10,7 +10,7 @@ from email.mime.multipart import MIMEMultipart
 st.set_page_config(page_title="송도캠퍼스 파이낸셜 네비게이터", layout="wide")
 
 try:
-    # --- [CI 구역: 구버전 완벽 호환 정중앙 정렬] ---
+    # --- [CI 구역] ---
     logo_path = '「반출」logo.png'  
     
     with st.sidebar:
@@ -30,7 +30,6 @@ try:
         'SM_SDO': '생산지원팀', 'SM_SVO': '밸리데이션팀', 'SM_QSF': '품질관리6팀', 'SM_SQA': '품질보증3팀'
     }
 
-    # 대시보드 메인 제목
     st.title("📊 송도캠퍼스 팀별 파이낸셜 네비게이터")
 
     # 1. 파일 자동 탐색
@@ -89,7 +88,7 @@ try:
             df_budget.columns = [str(c).strip() for c in df_budget.columns]
             df_actual.columns = [str(c).strip() for c in df_actual.columns]
 
-            # ★★★ [메뉴 신설] 좌측 데이터 매칭 영역에 분기별 예실분석 항목 추가 ★★★
+            # 4. 사이드바 - 분석 주기 선택
             st.sidebar.markdown("### ⚙️ 데이터 매칭 및 예실분석")
             analysis_type = st.sidebar.selectbox(
                 "📅 분석 주기 선택", 
@@ -110,7 +109,7 @@ try:
             for i in range(1, 13):
                 actual_real_cols[f"{i:02d}월"] = f"{i:02d}월"
 
-            # 1. 일반 월별/통합 분석 선택 시 (기존 수동 드롭다운 노출)
+            # 1. 일반 월별 분석
             if analysis_type == '월별/통합 분석':
                 b_keys = [k for k in display_names if budget_real_cols.get(k) in df_budget.columns]
                 a_keys = [k for k in display_names if actual_real_cols.get(k) in df_actual.columns]
@@ -127,30 +126,24 @@ try:
                 df_budget[budget_col] = pd.to_numeric(df_budget[budget_col].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
                 df_actual[actual_col] = pd.to_numeric(df_actual[actual_col].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
             
-            # 2. 분기 선택 시 (드롭다운 숨기고 파이썬이 알아서 3달치 묶어서 자동 합산)
+            # 2. 분기별 분석
             else:
                 if '1분기' in analysis_type: months = [1, 2, 3]
                 elif '2분기' in analysis_type: months = [4, 5, 6]
                 elif '3분기' in analysis_type: months = [7, 8, 9]
                 else: months = [10, 11, 12]
 
-                # 예산 파일에서 분기에 해당하는 열들 찾기
                 b_cols_to_sum = []
                 for m in months:
                     possible_cols = [f"2026.{m:02d}", f"2026.{m}"]
                     if m == 10: possible_cols.extend(['2026.1', "2026.'10"])
                     found_col = next((c for c in possible_cols if c in df_budget.columns), None)
-                    if found_col:
-                        b_cols_to_sum.append(found_col)
+                    if found_col: b_cols_to_sum.append(found_col)
 
-                # 집행 파일에서 분기에 해당하는 열들 찾기
                 a_cols_to_sum = [f"{m:02d}월" for m in months if f"{m:02d}월" in df_actual.columns]
 
-                # 데이터 정제 후 자동 합산용 가상 열 생성
-                for col in b_cols_to_sum:
-                    df_budget[col] = pd.to_numeric(df_budget[col].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
-                for col in a_cols_to_sum:
-                    df_actual[col] = pd.to_numeric(df_actual[col].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
+                for col in b_cols_to_sum: df_budget[col] = pd.to_numeric(df_budget[col].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
+                for col in a_cols_to_sum: df_actual[col] = pd.to_numeric(df_actual[col].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
 
                 df_budget['🎯분기예산'] = df_budget[b_cols_to_sum].sum(axis=1) if b_cols_to_sum else 0
                 df_actual['🎯분기집행'] = df_actual[a_cols_to_sum].sum(axis=1) if a_cols_to_sum else 0
@@ -158,7 +151,7 @@ try:
                 budget_col = '🎯분기예산'
                 actual_col = '🎯분기집행'
 
-            # 6. 그룹화 및 병합
+            # 그룹화 및 병합
             df_b_grouped = df_budget.groupby('최종팀명')[budget_col].sum().reset_index()
             df_a_grouped = df_actual.groupby('최종팀명')[actual_col].sum().reset_index()
 
@@ -168,10 +161,7 @@ try:
             df_final_teams = pd.DataFrame({'팀명': list(cc_mapping.values())})
             df_merged = pd.merge(df_final_teams, df_b_grouped, on='팀명', how='left').fillna(0)
             df_merged = pd.merge(df_merged, df_a_grouped, on='팀명', how='left').fillna(0)
-            
-            df_merged['집행률(%)'] = df_merged.apply(
-                lambda row: (row['집행금액'] / row['예산금액'] * 100) if row['예산금액'] > 0 else 0, axis=1
-            ).round(1)
+            df_merged['집행률(%)'] = df_merged.apply(lambda row: (row['집행금액'] / row['예산금액'] * 100) if row['예산금액'] > 0 else 0, axis=1).round(1)
 
             # --- [이메일 발송 기능] ---
             st.sidebar.markdown("---")
@@ -195,13 +185,11 @@ try:
                                 msg['From'] = sender_email
                                 msg['To'] = receiver_email
                                 msg['Subject'] = f"⚠️ [예산 경고] {len(over_budget_teams)}개 팀 집행률 {alert_threshold}% 초과"
-                                
                                 body = f"다음 팀들의 예산 집행률이 {alert_threshold}%를 초과했습니다.\n\n"
                                 for team in over_budget_teams:
                                     rate = df_merged[df_merged['팀명'] == team]['집행률(%)'].values[0]
                                     body += f"- {team}: {rate}%\n"
                                 body += "\n자세한 사항은 송도캠퍼스 예산 대시보드를 확인해 주세요."
-                                
                                 msg.attach(MIMEText(body, 'plain'))
                                 server = smtplib.SMTP('smtp.gmail.com', 587)
                                 server.starttls()
@@ -211,14 +199,10 @@ try:
                                 st.sidebar.success(f"✅ {len(over_budget_teams)}개 팀에 경고 메일 발송 완료!")
                             else:
                                 st.sidebar.info("현재 기준치를 초과한 팀이 없습니다.")
-                        except KeyError:
-                            st.sidebar.error("⚠️ Secrets에 이메일 정보가 없습니다!")
-                        except Exception as e:
+                        except Exception:
                             st.sidebar.error("메일 발송 실패: 정보를 확인해 주세요.")
                     else:
                         st.sidebar.warning("⚠️ 받는 사람 메일 주소를 입력해주세요.")
-            elif admin_password != "":
-                st.sidebar.error("❌ 암호가 올바르지 않습니다.")
 
             # --- [대시보드 메인 화면] ---
             st.markdown("---")
@@ -265,21 +249,56 @@ try:
                 t.textposition = 'outside'
 
             current_bargap = 0.7 if len(df_plot) == 1 else 0.2
-
-            fig.update_layout(
-                xaxis_title="팀명", 
-                yaxis_title="금액 (원)", 
-                legend_title="구분", 
-                yaxis=dict(tickformat=",.0f"),
-                bargap=current_bargap, 
-                height=450
-            )
+            fig.update_layout(xaxis_title="팀명", yaxis_title="금액 (원)", legend_title="구분", yaxis=dict(tickformat=",.0f"), bargap=current_bargap, height=450)
             st.plotly_chart(fig, use_container_width=True)
 
-            # --- [세부 항목 분석 구역 (TOP 3 랭킹)] ---
+            # --- [세부 항목 분석 구역] ---
             st.markdown("---")
             title_text = "전체 팀" if selected_team == "전체보기" else selected_team
             st.markdown(f"### 🔍 {title_text} - 항목별(제조경비 세부) 상세 분석")
+
+            # ★★★ [추가된 기능: 분기별 요약 브리핑 리포트 창] ★★★
+            if analysis_type != '월별/통합 분석':
+                if '1분기' in analysis_type:
+                    st.info("💡 1분기 데이터입니다. (올해 이전 분기 데이터가 존재하지 않아 전 분기 비교가 생략됩니다.)")
+                else:
+                    if '2분기' in analysis_type: prev_months = [1, 2, 3]
+                    elif '3분기' in analysis_type: prev_months = [4, 5, 6]
+                    else: prev_months = [7, 8, 9]
+                    
+                    prev_a_cols = [f"{m:02d}월" for m in prev_months if f"{m:02d}월" in df_a_detail.columns]
+                    
+                    if prev_a_cols:
+                        prev_total = df_a_detail[prev_a_cols].sum().sum()
+                        curr_total = df_a_detail[actual_col].sum()
+                        diff_total = curr_total - prev_total
+                        
+                        df_prev_cat = df_a_detail.groupby('항목구분명')[prev_a_cols].sum().sum(axis=1).reset_index(name='prev_amt')
+                        df_curr_cat = df_a_detail.groupby('항목구분명')[actual_col].sum().reset_index(name='curr_amt')
+                        
+                        df_trend = pd.merge(df_curr_cat, df_prev_cat, on='항목구분명', how='outer').fillna(0)
+                        df_trend['diff'] = df_trend['curr_amt'] - df_trend['prev_amt']
+                        
+                        diff_str = f"{abs(diff_total):,.0f}원 " + ("<span style='color:red;'>증가 🔺</span>" if diff_total > 0 else "<span style='color:blue;'>감소 🔽</span>")
+                        
+                        max_inc_cat = df_trend.sort_values(by='diff', ascending=False).iloc[0] if not df_trend.empty and df_trend['diff'].max() > 0 else None
+                        max_dec_cat = df_trend.sort_values(by='diff', ascending=True).iloc[0] if not df_trend.empty and df_trend['diff'].min() < 0 else None
+                        
+                        report_html = f"""
+                        <div style='background-color: #f8f9fa; padding: 20px; border-radius: 10px; border-left: 6px solid #4a4a4a; margin-bottom: 20px; box-shadow: 2px 2px 5px rgba(0,0,0,0.05);'>
+                            <h4 style='margin-top:0px; margin-bottom:15px; color:#343a40;'>📝 {analysis_type[:3]} 집행 요약 리포트</h4>
+                            <ul style='font-size: 16px; line-height: 1.8; margin-bottom: 0px;'>
+                                <li>전 분기 대비 총 집행 금액이 <b>{diff_str}</b>했습니다.</li>
+                        """
+                        if max_inc_cat is not None:
+                            report_html += f"<li>비용이 가장 많이 증가한 항목은 <b>{max_inc_cat['항목구분명']}</b> (+{max_inc_cat['diff']:,.0f}원) 입니다.</li>"
+                        if max_dec_cat is not None:
+                            report_html += f"<li>비용이 가장 많이 절감된 항목은 <b>{max_dec_cat['항목구분명']}</b> ({max_dec_cat['diff']:,.0f}원) 입니다.</li>"
+                            
+                        report_html += "</ul></div>"
+                        st.markdown(report_html, unsafe_allow_html=True)
+                    else:
+                        st.info("⚠️ 엑셀 파일 내 전 분기 월별 데이터가 부족하여 비교할 수 없습니다.")
             
             col_b, col_a = st.columns(2)
             
