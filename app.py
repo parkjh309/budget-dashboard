@@ -1,11 +1,3 @@
-아하, 코드로 바로 수정해 달라는 말씀이셨군요! 제가 이전 답변에서 말귀를 무겁게 알아들어 죄송합니다. 🙇‍♂️
-
-스트림릿 사이드바 안에서 로고 이미지의 크기를 확 키우고, 좌우 여백을 똑같이 맞춰 정중앙(센터)에 쏙 들어가도록 코드를 수정했습니다. 로고가 커진 만큼 그 아래 들어가는 회사명 "동아ST" 글자도 조금 더 크고 보기 좋게 정돈했습니다.
-
-기존의 데이터 계산이나 그래프 뼈대는 완벽하게 유지되니 안심하시고, 깃허브의 app.py 내용을 이 코드로 완전히 새로 덮어써 주세요!
-
-🛠️ [로고 확대 및 중앙 정렬 반영] 최종 수정 코드 (app.py)
-Python
 import streamlit as st
 import pandas as pd
 import plotly.express as px
@@ -18,19 +10,20 @@ from email.mime.multipart import MIMEMultipart
 st.set_page_config(page_title="송도캠퍼스 파이낸셜 네비게이터", layout="wide")
 
 try:
-    # --- [CI 구역: 크기 확대 및 정중앙 정렬 반영] ---
+    # --- [CI 구역: 구버전 완벽 호환 정중앙 정렬] ---
     logo_path = '「반출」logo.png'  
     
-    if os.path.exists(logo_path):
-        # 사이드바 내부에 3개의 칸(Column)을 쪼개어, 가운데 칸에 로고를 넣어 정중앙을 맞춥니다.
-        # 비율을 [1, 6, 1]로 설정하여 로고가 사이드바 화면에 큼직하게 꽉 차도록 키웠습니다.
-        log_col1, log_col2, log_col3 = st.sidebar.columns([1, 6, 1])
-        with log_col2:
-            st.image(logo_path, use_container_width=True)
-    
-    # 로고 바로 밑에 회사명 "동아ST"를 정중앙에 배치 (글자 크기도 32px로 시원하게 키웠습니다)
-    st.sidebar.markdown("<h1 style='text-align: center; font-size: 32px; margin-top: 5px; font-weight: bold;'>동아ST</h1>", unsafe_allow_html=True)
-    st.sidebar.markdown("---") # CI와 데이터 매칭 메뉴 구분선
+    # 구버전 스트림릿에서도 절대 뻗지 않도록 상위 블록(with st.sidebar)을 먼저 열어줍니다.
+    with st.sidebar:
+        if os.path.exists(logo_path):
+            # 버전 에러를 일으키는 인자들을 싹 빼고, 안전한 표준 컬럼 분할을 사용합니다.
+            log_col1, log_col2, log_col3 = st.columns([1, 4, 1])
+            with log_col2:
+                st.image(logo_path) # 버전 충돌 없는 순수 이미지 출력
+        
+        # 회사명 "동아ST" 정중앙 배치
+        st.markdown("<h1 style='text-align: center; font-size: 32px; margin-top: 5px; font-weight: bold;'>동아ST</h1>", unsafe_allow_html=True)
+        st.markdown("---") # CI와 데이터 매칭 메뉴 구분선
 
     all_files = os.listdir('.')
     
@@ -99,7 +92,7 @@ try:
             df_budget.columns = [str(c).strip() for c in df_budget.columns]
             df_actual.columns = [str(c).strip() for c in df_actual.columns]
 
-            # 4. 사이드바 - 메뉴 매칭
+            # 4. 사이드바 - 메뉴 매칭 (안전한 명시적 sidebar 지정)
             st.sidebar.markdown("### ⚙️ 데이터 매칭")
             display_names = ['TOTAL', '01월', '02월', '03월', '04월', '05월', '06월', '07월', '08월', '09월', '10월', '11월', '12월']
             
