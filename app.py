@@ -13,17 +13,14 @@ try:
     # --- [CI 구역: 구버전 완벽 호환 정중앙 정렬] ---
     logo_path = '「반출」logo.png'  
     
-    # 구버전 스트림릿에서도 절대 뻗지 않도록 상위 블록(with st.sidebar)을 먼저 열어줍니다.
     with st.sidebar:
         if os.path.exists(logo_path):
-            # 버전 에러를 일으키는 인자들을 싹 빼고, 안전한 표준 컬럼 분할을 사용합니다.
             log_col1, log_col2, log_col3 = st.columns([1, 4, 1])
             with log_col2:
-                st.image(logo_path) # 버전 충돌 없는 순수 이미지 출력
+                st.image(logo_path)
         
-        # 회사명 "동아ST" 정중앙 배치
         st.markdown("<h1 style='text-align: center; font-size: 32px; margin-top: 5px; font-weight: bold;'>동아ST</h1>", unsafe_allow_html=True)
-        st.markdown("---") # CI와 데이터 매칭 메뉴 구분선
+        st.markdown("---")
 
     all_files = os.listdir('.')
     
@@ -92,7 +89,7 @@ try:
             df_budget.columns = [str(c).strip() for c in df_budget.columns]
             df_actual.columns = [str(c).strip() for c in df_actual.columns]
 
-            # 4. 사이드바 - 메뉴 매칭 (안전한 명시적 sidebar 지정)
+            # 4. 사이드바 데이터 매칭
             st.sidebar.markdown("### ⚙️ 데이터 매칭")
             display_names = ['TOTAL', '01월', '02월', '03월', '04월', '05월', '06월', '07월', '08월', '09월', '10월', '11월', '12월']
             
@@ -242,18 +239,20 @@ try:
             )
             st.plotly_chart(fig, use_container_width=True)
 
-            # --- [세부 항목 분석 구역] ---
+            # --- [세부 항목 분석 구역 (TOP 3 랭킹 포함)] ---
             st.markdown("---")
             title_text = "전체 팀" if selected_team == "전체보기" else selected_team
             st.markdown(f"### 🔍 {title_text} - 항목별(제조경비 세부) 상세 분석")
             
             col_b, col_a = st.columns(2)
             
+            # [좌측] 예산 비율 및 TOP 3
             with col_b:
                 st.markdown("#### 💰 수립 예산 구성비율")
                 if '계정' in df_b_detail.columns:
                     df_b_cat = df_b_detail[df_b_detail[budget_col] > 0]
                     if not df_b_cat.empty:
+                        # 1. 원형 차트 그리기
                         df_b_grouped_cat = df_b_cat.groupby('계정')[budget_col].sum().reset_index()
                         df_b_grouped_cat = df_b_grouped_cat.sort_values(by=budget_col, ascending=False).head(10)
                         
@@ -261,16 +260,34 @@ try:
                                        color_discrete_sequence=px.colors.sequential.Blues_r)
                         fig_b.update_traces(textposition='inside', textinfo='percent+label')
                         st.plotly_chart(fig_b, use_container_width=True)
+
+                        # 2. 예산 TOP 3 랭킹 박스 추가
+                        top3_b = df_b_grouped_cat.head(3)
+                        total_b_amt = df_b_cat[budget_col].sum()
+                        medals = ['🥇', '🥈', '🥉']
+                        
+                        html_b = "<div style='background-color: #f0f8ff; padding: 15px; border-radius: 10px; border-left: 5px solid #1f77b4; margin-top: -20px;'>"
+                        html_b += "<h4 style='margin-top:0px; margin-bottom:15px; color:#1f77b4;'>🏆 예산 비중 TOP 3</h4>"
+                        for i, row in enumerate(top3_b.itertuples()):
+                            acc_name = getattr(row, '계정')
+                            amt = getattr(row, budget_col)
+                            pct = (amt / total_b_amt) * 100 if total_b_amt > 0 else 0
+                            html_b += f"<div style='font-size: 20px; font-weight: bold; margin-bottom: 10px;'>{medals[i]} {acc_name} <span style='font-size: 16px; color: #555;'>({pct:.1f}%)</span></div>"
+                        html_b += "</div>"
+                        st.markdown(html_b, unsafe_allow_html=True)
+                        
                     else:
                         st.info("선택된 기간의 예산 세부 데이터가 없습니다.")
                 else:
                     st.warning("예산 파일에 '계정' 열을 찾을 수 없어 분석할 수 없습니다.")
 
+            # [우측] 집행 비율 및 TOP 3
             with col_a:
                 st.markdown("#### 💸 실제 집행 구성비율")
                 if '항목구분명' in df_a_detail.columns:
                     df_a_cat = df_a_detail[df_a_detail[actual_col] > 0]
                     if not df_a_cat.empty:
+                        # 1. 원형 차트 그리기
                         df_a_grouped_cat = df_a_cat.groupby('항목구분명')[actual_col].sum().reset_index()
                         df_a_grouped_cat = df_a_grouped_cat.sort_values(by=actual_col, ascending=False).head(10)
                         
@@ -278,18 +295,15 @@ try:
                                        color_discrete_sequence=px.colors.sequential.Oranges_r)
                         fig_a.update_traces(textposition='inside', textinfo='percent+label')
                         st.plotly_chart(fig_a, use_container_width=True)
-                    else:
-                        st.info("선택된 기간의 집행 세부 데이터가 없습니다.")
-                else:
-                    st.warning("집행 파일에 '항목구분명' 열을 찾을 수 없어 분석할 수 없습니다.")
 
-            st.markdown("---")
-            st.markdown("### 📋 상세 데이터")
-            st.dataframe(df_display.style.format({'예산금액': '{:,.0f}', '집행금액': '{:,.0f}', '집행률(%)': '{:.1f}%'}))
-        else:
-            st.error("데이터 조립 과정에서 오류가 발생했거나 데이터가 비어있습니다.")
-    else:
-        st.error("❌ 깃허브 폴더에서 '예산' 또는 '경비집행' 파일을 찾을 수 없습니다.")
-
-except Exception as e:
-    st.error(f"⚠️ 데이터 처리 중 오류가 발생했습니다: {e}")
+                        # 2. 집행 TOP 3 랭킹 박스 추가
+                        top3_a = df_a_grouped_cat.head(3)
+                        total_a_amt = df_a_cat[actual_col].sum()
+                        medals = ['🥇', '🥈', '🥉']
+                        
+                        html_a = "<div style='background-color: #fffaf0; padding: 15px; border-radius: 10px; border-left: 5px solid #ff7f0e; margin-top: -20px;'>"
+                        html_a += "<h4 style='margin-top:0px; margin-bottom:15px; color:#ff7f0e;'>🏆 집행 비중 TOP 3</h4>"
+                        for i, row in enumerate(top3_a.itertuples()):
+                            acc_name = getattr(row, '항목구분명')
+                            amt = getattr(row, actual_col)
+                            pct = (amt / total_
