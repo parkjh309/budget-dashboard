@@ -5,7 +5,6 @@ import os
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
-from datetime import datetime
 
 st.set_page_config(page_title="송도캠퍼스 파이낸셜 네비게이터", layout="wide")
 st.title("📊 송도캠퍼스 팀별 파이낸셜 네비게이터")
@@ -123,70 +122,52 @@ try:
                 lambda row: (row['집행금액'] / row['예산금액'] * 100) if row['예산금액'] > 0 else 0, axis=1
             ).round(1)
 
-            # ★★★ [보안 업그레이드] 개발자 전용 관리자 자물쇠 ★★★
+            # ★★★ [버튼 클릭 방식] 수동 발송 알림 시스템 ★★★
             st.sidebar.markdown("---")
             st.sidebar.markdown("### 🔐 관리자 인증")
             admin_password = st.sidebar.text_input("개발자 암호를 입력하세요", type="password")
 
-            # 비밀번호가 'admin1234' 와 일치할 때만 알림 설정 메뉴가 노출됩니다.
             if admin_password == "admin1234":
-                st.sidebar.markdown("### 📧 스마트 자동 알림 (인증됨)")
-                enable_email = st.sidebar.toggle("알림 기능 켜기", value=True)
+                st.sidebar.markdown("### 📧 수동 알림 발송 (인증됨)")
                 
-                if enable_email:
-                    alert_threshold = st.sidebar.slider("알림 기준 집행률(%)", 50, 100, 80)
-                    sender_email = st.sidebar.text_input("보내는 사람 (Gmail)")
-                    sender_pw = st.sidebar.text_input("Gmail 앱 비밀번호 16자리", type="password")
-                    receiver_email = st.sidebar.text_input("받는 사람 메일")
+                alert_threshold = st.sidebar.slider("알림 기준 집행률(%)", 50, 100, 80)
+                sender_email = st.sidebar.text_input("보내는 사람 (Gmail)")
+                sender_pw = st.sidebar.text_input("Gmail 앱 비밀번호 16자리", type="password")
+                receiver_email = st.sidebar.text_input("받는 사람 메일")
 
+                # 발송 버튼 (이 버튼을 누를 때만 메일이 날아갑니다!)
+                if st.sidebar.button("📩 초과 알림 메일 발송하기"):
                     if sender_email and sender_pw and receiver_email:
                         over_budget_teams = df_merged[df_merged['집행률(%)'] >= alert_threshold]['팀명'].tolist()
                         
                         if over_budget_teams:
-                            current_month = datetime.now().strftime("%Y-%m")
-                            log_file = "email_log.csv"
-                            
-                            if os.path.exists(log_file):
-                                log_df = pd.read_csv(log_file)
-                            else:
-                                log_df = pd.DataFrame(columns=["팀명", "발송월"])
-                            
-                            teams_to_send = []
-                            for team in over_budget_teams:
-                                already_sent = ((log_df['팀명'] == team) & (log_df['발송월'] == current_month)).any()
-                                if not already_sent:
-                                    teams_to_send.append(team)
-                            
-                            if teams_to_send:
-                                try:
-                                    msg = MIMEMultipart()
-                                    msg['From'] = sender_email
-                                    msg['To'] = receiver_email
-                                    msg['Subject'] = f"⚠️ [예산 경고] {len(teams_to_send)}개 팀 집행률 {alert_threshold}% 초과"
-                                    
-                                    body = f"다음 팀들의 예산 집행률이 {alert_threshold}%를 초과했습니다.\n\n"
-                                    for team in teams_to_send:
-                                        rate = df_merged[df_merged['팀명'] == team]['집행률(%)'].values[0]
-                                        body += f"- {team}: {rate}%\n"
-                                    body += "\n자세한 사항은 예산 대시보드를 확인해 주세요."
-                                    
-                                    msg.attach(MIMEText(body, 'plain'))
-                                    
-                                    server = smtplib.SMTP('smtp.gmail.com', 587)
-                                    server.starttls()
-                                    server.login(sender_email, sender_pw)
-                                    server.send_message(msg)
-                                    server.quit()
-                                    
-                                    new_logs = pd.DataFrame({"팀명": teams_to_send, "발송월": [current_month]*len(teams_to_send)})
-                                    log_df = pd.concat([log_df, new_logs], ignore_index=True)
-                                    log_df.to_csv(log_file, index=False)
-                                    
-                                    st.sidebar.success("✅ 초과 알림 메일 발송 완료!")
-                                except Exception as e:
-                                    st.sidebar.error("메일 발송 실패: 정보 확인 요망")
+                            try:
+                                msg = MIMEMultipart()
+                                msg['From'] = sender_email
+                                msg['To'] = receiver_email
+                                msg['Subject'] = f"⚠️ [예산 경고] {len(over_budget_teams)}개 팀 집행률 {alert_threshold}% 초과"
+                                
+                                body = f"다음 팀들의 예산 집행률이 {alert_threshold}%를 초과했습니다.\n\n"
+                                for team in over_budget_teams:
+                                    rate = df_merged[df_merged['팀명'] == team]['집행률(%)'].values[0]
+                                    body += f"- {team}: {rate}%\n"
+                                body += "\n자세한 사항은 송도캠퍼스 예산 대시보드를 확인해 주세요."
+                                
+                                msg.attach(MIMEText(body, 'plain'))
+                                
+                                server = smtplib.SMTP('smtp.gmail.com', 587)
+                                server.starttls()
+                                server.login(sender_email, sender_pw)
+                                server.send_message(msg)
+                                server.quit()
+                                
+                                st.sidebar.success(f"✅ {len(over_budget_teams)}개 팀에 대한 경고 메일 발송 완료!")
+                            except Exception as e:
+                                st.sidebar.error("메일 발송 실패: 입력한 정보를 다시 확인해주세요.")
                         else:
-                            st.sidebar.info("현재 기준치를 초과한 팀이 없습니다.")
+                            st.sidebar.info("현재 기준치를 초과한 팀이 없습니다. (메일 발송 생략)")
+                    else:
+                        st.sidebar.warning("⚠️ 메일 주소와 앱 비밀번호를 모두 입력해주세요.")
             elif admin_password != "":
                 st.sidebar.error("❌ 암호가 올바르지 않습니다.")
 
