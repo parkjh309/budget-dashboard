@@ -6,8 +6,14 @@ import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
-# 대시보드 페이지 설정 (요청하신 제목으로 수정)
+# 대시보드 페이지 설정
 st.set_page_config(page_title="송도캠퍼스 팀별 경비예산 분석", layout="wide")
+
+# 0️⃣ [페이지 라우팅 기억장치 초기화]
+if 'page' not in st.session_state:
+    st.session_state.page = 'main'  # 기본값은 메인 화면
+if 'chosen_team' not in st.session_state:
+    st.session_state.chosen_team = '전체보기'
 
 try:
     # --- [CI 구역: 구버전 완벽 호환 정중앙 정렬] ---
@@ -29,9 +35,6 @@ try:
         'SM_SMF': '송도공장장', 'SM_SAO': '제조팀', 'SM_SHO': '설비관리팀',
         'SM_SDO': '생산지원팀', 'SM_SVO': '밸리데이션팀', 'SM_QSF': '품질관리6팀', 'SM_SQA': '품질보증3팀'
     }
-
-    # 대시보드 메인 제목 (요청하신 제목으로 수정)
-    st.title("📊 송도캠퍼스 팀별 경비예산 분석")
 
     # 1. 파일 자동 탐색
     budget_file = next((f for f in all_files if "예산" in f and (f.endswith('.xlsx') or f.endswith('.csv'))), None)
@@ -205,173 +208,223 @@ try:
                     else:
                         st.sidebar.warning("⚠️ 받는 사람 메일 주소를 입력해주세요.")
 
-            # --- [대시보드 메인 화면] ---
-            st.markdown("---")
-            selected_team = st.selectbox("📌 조회할 팀을 선택하세요", ["전체보기"] + list(cc_mapping.values()))
+            # ==========================================
+            # 🏁 [1번 화면: 메인 대시보드 페이지]
+            # ==========================================
+            if st.session_state.page == 'main':
+                st.title("📊 송도캠퍼스 팀별 경비예산 분석")
+                st.markdown("---")
+                
+                # 팀 조회 박스
+                selected_team = st.selectbox("📌 조회할 팀을 선택하세요", ["전체보기"] + list(cc_mapping.values()))
 
-            if selected_team != "전체보기":
-                df_display = df_merged[df_merged['팀명'] == selected_team].copy()
-                df_b_detail = df_budget[df_budget['최종팀명'] == selected_team].copy()
-                df_a_detail = df_actual[df_actual['최종팀명'] == selected_team].copy()
-            else:
-                df_display = df_merged.copy()
-                df_b_detail = df_budget.copy()
-                df_a_detail = df_actual.copy()
+                # ★★★ [핵심 신설] 특정 팀 선택 시 '상세내역 버튼'을 상단에 큼직하게 노출 ★★★
+                if selected_team != "전체보기":
+                    page_col1, page_col2 = st.columns([5, 1])
+                    with page_col2:
+                        # 버튼을 누르면 기억장치를 'detail'로 바꾸고 화면을 즉시 새로고침합니다.
+                        if st.button("📂 상세내역 분석 페이지 ➡️"):
+                            st.session_state.page = 'detail'
+                            st.session_state.chosen_team = selected_team
+                            st.rerun()
 
-            # KPI 요약 지표
-            st.markdown("### 💡 팀 통합 요약 지표")
-            total_budget = df_display['예산금액'].sum()
-            total_actual = df_display['집행금액'].sum()
-            avg_rate = (total_actual / total_budget * 100) if total_budget > 0 else 0
-
-            col1, col2, col3 = st.columns(3)
-            col1.metric("총 수립 예산", f"{total_budget:,.0f} 원")
-            col2.metric("누적 집행 금액", f"{total_actual:,.0f} 원")
-            col3.metric("평균 집행률", f"{avg_rate:.1f} %")
-
-            def convert_to_korean_amount(val):
-                if val >= 100000000: return f"{val / 100000000:.1f}억 원"
-                elif val >= 10000: return f"{val / 10000:,.0f}만 원"
-                elif val > 0: return f"{val:,.0f} 원"
-                return "0 원"
-
-            df_plot = df_display.copy()
-            df_plot['예산금액_라벨'] = df_plot['예산금액'].apply(convert_to_korean_amount)
-            df_plot['집행금액_라벨'] = df_plot['집행금액'].apply(convert_to_korean_amount)
-
-            # 막대 그래프 배치
-            st.markdown("### 📈 예산 대비 집행 현황 (통합)")
-            fig = px.bar(
-                df_plot, x='팀명', y=['예산금액', '집행금액'], barmode='group',
-                color_discrete_sequence=['#1f77b4', '#ff7f0e']
-            )
-            for i, t in enumerate(fig.data):
-                t.text = df_plot['예산금액_라벨'] if t.name == '예산금액' else df_plot['집행금액_라벨']
-                t.textposition = 'outside'
-
-            current_bargap = 0.7 if len(df_plot) == 1 else 0.2
-            fig.update_layout(xaxis_title="팀명", yaxis_title="금액 (원)", legend_title="구분", yaxis=dict(tickformat=",.0f"), bargap=current_bargap, height=450)
-            st.plotly_chart(fig, use_container_width=True)
-
-            # --- [세부 항목 분석 구역] ---
-            st.markdown("---")
-            title_text = "전체 팀" if selected_team == "전체보기" else selected_team
-            st.markdown(f"### 🔍 {title_text} - 항목별(제조경비 세부) 상세 분석")
-
-            # [분기별 요약 브리핑 리포트 창]
-            if analysis_type != '월별/통합 분석':
-                if '1분기' in analysis_type:
-                    st.info("💡 1분기 데이터입니다. (올해 이전 분기 데이터가 존재하지 않아 전 분기 비교가 생략됩니다.)")
+                if selected_team != "전체보기":
+                    df_display = df_merged[df_merged['팀명'] == selected_team].copy()
+                    df_b_detail = df_budget[df_budget['최종팀명'] == selected_team].copy()
+                    df_a_detail = df_actual[df_actual['최종팀명'] == selected_team].copy()
                 else:
-                    if '2분기' in analysis_type: prev_months = [1, 2, 3]
-                    elif '3분기' in analysis_type: prev_months = [4, 5, 6]
-                    else: prev_months = [7, 8, 9]
-                    
-                    prev_a_cols = [f"{m:02d}월" for m in prev_months if f"{m:02d}월" in df_a_detail.columns]
-                    
-                    if prev_a_cols:
-                        prev_total = df_a_detail[prev_a_cols].sum().sum()
-                        curr_total = df_a_detail[actual_col].sum()
-                        diff_total = curr_total - prev_total
+                    df_display = df_merged.copy()
+                    df_b_detail = df_budget.copy()
+                    df_a_detail = df_actual.copy()
+
+                # KPI 요약 지표
+                st.markdown("### 💡 팀 통합 요약 지표")
+                total_budget = df_display['예산금액'].sum()
+                total_actual = df_display['집행금액'].sum()
+                avg_rate = (total_actual / total_budget * 100) if total_budget > 0 else 0
+
+                col1, col2, col3 = st.columns(3)
+                col1.metric("총 수립 예산", f"{total_budget:,.0f} 원")
+                col2.metric("누적 집행 금액", f"{total_actual:,.0f} 원")
+                col3.metric("평균 집행률", f"{avg_rate:.1f} %")
+
+                def convert_to_korean_amount(val):
+                    if val >= 100000000: return f"{val / 100000000:.1f}억 원"
+                    elif val >= 10000: return f"{val / 10000:,.0f}만 원"
+                    elif val > 0: return f"{val:,.0f} 원"
+                    return "0 원"
+
+                df_plot = df_display.copy()
+                df_plot['예산금액_라벨'] = df_plot['예산금액'].apply(convert_to_korean_amount)
+                df_plot['집행금액_라벨'] = df_plot['집행금액'].apply(convert_to_korean_amount)
+
+                # 막대 그래프 배치
+                st.markdown("### 📈 예산 대비 집행 현황 (통합)")
+                fig = px.bar(
+                    df_plot, x='팀명', y=['예산금액', '집행금액'], barmode='group',
+                    color_discrete_sequence=['#1f77b4', '#ff7f0e']
+                )
+                for i, t in enumerate(fig.data):
+                    t.text = df_plot['예산금액_라벨'] if t.name == '예산금액' else df_plot['집행금액_라벨']
+                    t.textposition = 'outside'
+
+                current_bargap = 0.7 if len(df_plot) == 1 else 0.2
+                fig.update_layout(xaxis_title="팀명", yaxis_title="금액 (원)", legend_title="구분", yaxis=dict(tickformat=",.0f"), bargap=current_bargap, height=450)
+                st.plotly_chart(fig, use_container_width=True)
+
+                # --- [세부 항목 분석 구역] ---
+                st.markdown("---")
+                title_text = "전체 팀" if selected_team == "전체보기" else selected_team
+                st.markdown(f"### 🔍 {title_text} - 항목별(제조경비 세부) 상세 분석")
+
+                # [분기별 요약 브리핑 리포트 창]
+                if analysis_type != '월별/통합 분석':
+                    if '1분기' in analysis_type:
+                        st.info("💡 1분기 데이터입니다. (올해 이전 분기 데이터가 존재하지 않아 전 분기 비교가 생략됩니다.)")
+                    else:
+                        if '2분기' in analysis_type: prev_months = [1, 2, 3]
+                        elif '3분기' in analysis_type: prev_months = [4, 5, 6]
+                        else: prev_months = [7, 8, 9]
                         
-                        df_prev_cat = df_a_detail.groupby('항목구분명')[prev_a_cols].sum().sum(axis=1).reset_index(name='prev_amt')
-                        df_curr_cat = df_a_detail.groupby('항목구분명')[actual_col].sum().reset_index(name='curr_amt')
+                        prev_a_cols = [f"{m:02d}월" for m in prev_months if f"{m:02d}월" in df_a_detail.columns]
                         
-                        df_trend = pd.merge(df_curr_cat, df_prev_cat, on='항목구분명', how='outer').fillna(0)
-                        df_trend['diff'] = df_trend['curr_amt'] - df_trend['prev_amt']
-                        
-                        diff_str = f"{abs(diff_total):,.0f}원 " + ("<span style='color:red;'>증가 🔺</span>" if diff_total > 0 else "<span style='color:blue;'>감소 🔽</span>")
-                        
-                        max_inc_cat = df_trend.sort_values(by='diff', ascending=False).iloc[0] if not df_trend.empty and df_trend['diff'].max() > 0 else None
-                        max_dec_cat = df_trend.sort_values(by='diff', ascending=True).iloc[0] if not df_trend.empty and df_trend['diff'].min() < 0 else None
-                        
-                        report_html = f"""
-                        <div style='background-color: #f8f9fa; padding: 20px; border-radius: 10px; border-left: 6px solid #4a4a4a; margin-bottom: 20px; box-shadow: 2px 2px 5px rgba(0,0,0,0.05);'>
-                            <h4 style='margin-top:0px; margin-bottom:15px; color:#343a40;'>📝 {analysis_type[:3]} 집행 요약 리포트</h4>
-                            <ul style='font-size: 16px; line-height: 1.8; margin-bottom: 0px;'>
-                                <li>전 분기 대비 총 집행 금액이 <b>{diff_str}</b>했습니다.</li>
-                        """
-                        if max_inc_cat is not None:
-                            report_html += f"<li>비용이 가장 많이 증가한 항목은 <b>{max_inc_cat['항목구분명']}</b> (+{max_inc_cat['diff']:,.0f}원) 입니다.</li>"
-                        if max_dec_cat is not None:
-                            report_html += f"<li>비용이 가장 많이 절감된 항목은 <b>{max_dec_cat['항목구분명']}</b> ({max_dec_cat['diff']:,.0f}원) 입니다.</li>"
+                        if prev_a_cols:
+                            prev_total = df_a_detail[prev_a_cols].sum().sum()
+                            curr_total = df_a_detail[actual_col].sum()
+                            diff_total = curr_total - prev_total
                             
-                        report_html += "</ul></div>"
-                        st.markdown(report_html, unsafe_allow_html=True)
+                            df_prev_cat = df_a_detail.groupby('항목구분명')[prev_a_cols].sum().sum(axis=1).reset_index(name='prev_amt')
+                            df_curr_cat = df_a_detail.groupby('항목구분명')[actual_col].sum().reset_index(name='curr_amt')
+                            
+                            df_trend = pd.merge(df_curr_cat, df_prev_cat, on='항목구분명', how='outer').fillna(0)
+                            df_trend['diff'] = df_trend['curr_amt'] - df_trend['prev_amt']
+                            
+                            diff_str = f"{abs(diff_total):,.0f}원 " + ("<span style='color:red;'>증가 🔺</span>" if diff_total > 0 else "<span style='color:blue;'>감소 🔽</span>")
+                            
+                            max_inc_cat = df_trend.sort_values(by='diff', ascending=False).iloc[0] if not df_trend.empty and df_trend['diff'].max() > 0 else None
+                            max_dec_cat = df_trend.sort_values(by='diff', ascending=True).iloc[0] if not df_trend.empty and df_trend['diff'].min() < 0 else None
+                            
+                            report_html = f"""
+                            <div style='background-color: #f8f9fa; padding: 20px; border-radius: 10px; border-left: 6px solid #4a4a4a; margin-bottom: 20px; box-shadow: 2px 2px 5px rgba(0,0,0,0.05);'>
+                                <h4 style='margin-top:0px; margin-bottom:15px; color:#343a40;'>📝 {analysis_type[:3]} 집행 요약 리포트</h4>
+                                <ul style='font-size: 16px; line-height: 1.8; margin-bottom: 0px;'>
+                                    <li>전 분기 대비 총 집행 금액이 <b>{diff_str}</b>했습니다.</li>
+                            """
+                            if max_inc_cat is not None:
+                                report_html += f"<li>비용이 가장 많이 증가한 항목은 <b>{max_inc_cat['항목구분명']}</b> (+{max_inc_cat['diff']:,.0f}원) 입니다.</li>"
+                            if max_dec_cat is not None:
+                                report_html += f"<li>비용이 가장 많이 절감된 항목은 <b>{max_dec_cat['항목구분명']}</b> ({max_dec_cat['diff']:,.0f}원) 입니다.</li>"
+                                
+                            report_html += "</ul></div>"
+                            st.markdown(report_html, unsafe_allow_html=True)
+                        else:
+                            st.info("⚠️ 엑셀 파일 내 전 분기 월별 데이터가 부족하여 비교할 수 없습니다.")
+                
+                col_b, col_a = st.columns(2)
+                
+                # [좌측] 예산 비율 및 TOP 3
+                with col_b:
+                    st.markdown("#### 💰 수립 예산 구성비율")
+                    if '계정' in df_b_detail.columns:
+                        df_b_cat = df_b_detail[df_b_detail[budget_col] > 0]
+                        if not df_b_cat.empty:
+                            df_b_grouped_cat = df_b_cat.groupby('계정')[budget_col].sum().reset_index()
+                            df_b_grouped_cat = df_b_grouped_cat.sort_values(by=budget_col, ascending=False).head(10)
+                            
+                            fig_b = px.pie(df_b_grouped_cat, values=budget_col, names='계정', hole=0.4, 
+                                           color_discrete_sequence=px.colors.sequential.Blues_r)
+                            fig_b.update_traces(textposition='inside', textinfo='percent+label')
+                            st.plotly_chart(fig_b, use_container_width=True)
+
+                            top3_b = df_b_grouped_cat.head(3)
+                            total_b_amt = df_b_cat[budget_col].sum()
+                            medals = ['🥇', '🥈', '🥉']
+                            
+                            html_b = "<div style='background-color: #f0f8ff; padding: 15px; border-radius: 10px; border-left: 5px solid #1f77b4; margin-top: -20px;'>"
+                            html_b += "<h4 style='margin-top:0px; margin-bottom:15px; color:#1f77b4;'>🏆 예산 비중 TOP 3</h4>"
+                            for i, (idx, row) in enumerate(top3_b.iterrows()):
+                                acc_name = row['계정']
+                                amt = row[budget_col]
+                                pct = (amt / total_b_amt) * 100 if total_b_amt > 0 else 0
+                                html_b += f"<div style='font-size: 20px; font-weight: bold; margin-bottom: 10px;'>{medals[i]} {acc_name} <span style='font-size: 16px; color: #555;'>({pct:.1f}%)</span></div>"
+                            html_b += "</div>"
+                            st.markdown(html_b, unsafe_allow_html=True)
+                        else:
+                            st.info("선택된 기간의 예산 세부 데이터가 없습니다.")
                     else:
-                        st.info("⚠️ 엑셀 파일 내 전 분기 월별 데이터가 부족하여 비교할 수 없습니다.")
-            
-            col_b, col_a = st.columns(2)
-            
-            # [좌측] 예산 비율 및 TOP 3
-            with col_b:
-                st.markdown("#### 💰 수립 예산 구성비율")
-                if '계정' in df_b_detail.columns:
-                    df_b_cat = df_b_detail[df_b_detail[budget_col] > 0]
-                    if not df_b_cat.empty:
-                        df_b_grouped_cat = df_b_cat.groupby('계정')[budget_col].sum().reset_index()
-                        df_b_grouped_cat = df_b_grouped_cat.sort_values(by=budget_col, ascending=False).head(10)
-                        
-                        fig_b = px.pie(df_b_grouped_cat, values=budget_col, names='계정', hole=0.4, 
-                                       color_discrete_sequence=px.colors.sequential.Blues_r)
-                        fig_b.update_traces(textposition='inside', textinfo='percent+label')
-                        st.plotly_chart(fig_b, use_container_width=True)
+                        st.warning("예산 파일에 '계정' 열을 찾을 수 없어 분석할 수 없습니다.")
 
-                        top3_b = df_b_grouped_cat.head(3)
-                        total_b_amt = df_b_cat[budget_col].sum()
-                        medals = ['🥇', '🥈', '🥉']
-                        
-                        html_b = "<div style='background-color: #f0f8ff; padding: 15px; border-radius: 10px; border-left: 5px solid #1f77b4; margin-top: -20px;'>"
-                        html_b += "<h4 style='margin-top:0px; margin-bottom:15px; color:#1f77b4;'>🏆 예산 비중 TOP 3</h4>"
-                        for i, (idx, row) in enumerate(top3_b.iterrows()):
-                            acc_name = row['계정']
-                            amt = row[budget_col]
-                            pct = (amt / total_b_amt) * 100 if total_b_amt > 0 else 0
-                            html_b += f"<div style='font-size: 20px; font-weight: bold; margin-bottom: 10px;'>{medals[i]} {acc_name} <span style='font-size: 16px; color: #555;'>({pct:.1f}%)</span></div>"
-                        html_b += "</div>"
-                        st.markdown(html_b, unsafe_allow_html=True)
-                        
+                # [우측] 집행 비율 및 TOP 3
+                with col_a:
+                    st.markdown("#### 💸 실제 집행 구성비율")
+                    if '항목구분명' in df_a_detail.columns:
+                        df_a_cat = df_a_detail[df_a_detail[actual_col] > 0]
+                        if not df_a_cat.empty:
+                            df_a_grouped_cat = df_a_cat.groupby('항목구분명')[actual_col].sum().reset_index()
+                            df_a_grouped_cat = df_a_grouped_cat.sort_values(by=actual_col, ascending=False).head(10)
+                            
+                            fig_a = px.pie(df_a_grouped_cat, values=actual_col, names='항목구분명', hole=0.4,
+                                           color_discrete_sequence=px.colors.sequential.Oranges_r)
+                            fig_a.update_traces(textposition='inside', textinfo='percent+label')
+                            st.plotly_chart(fig_a, use_container_width=True)
+
+                            top3_a = df_a_grouped_cat.head(3)
+                            total_a_amt = df_a_cat[actual_col].sum()
+                            medals = ['🥇', '🥈', '🥉']
+                            
+                            html_a = "<div style='background-color: #fffaf0; padding: 15px; border-radius: 10px; border-left: 5px solid #ff7f0e; margin-top: -20px;'>"
+                            html_a += "<h4 style='margin-top:0px; margin-bottom:15px; color:#ff7f0e;'>🏆 집행 비중 TOP 3</h4>"
+                            for i, (idx, row) in enumerate(top3_a.iterrows()):
+                                acc_name = row['항목구분명']
+                                amt = row[actual_col]
+                                pct = (amt / total_a_amt) * 100 if total_a_amt > 0 else 0
+                                html_a += f"<div style='font-size: 20px; font-weight: bold; margin-bottom: 10px;'>{medals[i]} {acc_name} <span style='font-size: 16px; color: #555;'>({pct:.1f}%)</span></div>"
+                            html_a += "</div>"
+                            st.markdown(html_a, unsafe_allow_html=True)
+                        else:
+                            st.info("선택된 기간의 집행 세부 데이터가 없습니다.")
                     else:
-                        st.info("선택된 기간의 예산 세부 데이터가 없습니다.")
-                else:
-                    st.warning("예산 파일에 '계정' 열을 찾을 수 없어 분석할 수 없습니다.")
+                        st.warning("집행 파일에 '항목구분명' 열을 찾을 수 없어 분석할 수 없습니다.")
 
-            # [우측] 집행 비율 및 TOP 3
-            with col_a:
-                st.markdown("#### 💸 실제 집행 구성비율")
-                if '항목구분명' in df_a_detail.columns:
-                    df_a_cat = df_a_detail[df_a_detail[actual_col] > 0]
-                    if not df_a_cat.empty:
-                        df_a_grouped_cat = df_a_cat.groupby('항목구분명')[actual_col].sum().reset_index()
-                        df_a_grouped_cat = df_a_grouped_cat.sort_values(by=actual_col, ascending=False).head(10)
-                        
-                        fig_a = px.pie(df_a_grouped_cat, values=actual_col, names='항목구분명', hole=0.4,
-                                       color_discrete_sequence=px.colors.sequential.Oranges_r)
-                        fig_a.update_traces(textposition='inside', textinfo='percent+label')
-                        st.plotly_chart(fig_a, use_container_width=True)
+                st.markdown("---")
+                st.markdown("### 📋 요약 데이터 표")
+                st.dataframe(df_display.style.format({'예산금액': '{:,.0f}', '집행금액': '{:,.0f}', '집행률(%)': '{:.1f}%'}))
 
-                        top3_a = df_a_grouped_cat.head(3)
-                        total_a_amt = df_a_cat[actual_col].sum()
-                        medals = ['🥇', '🥈', '🥉']
-                        
-                        html_a = "<div style='background-color: #fffaf0; padding: 15px; border-radius: 10px; border-left: 5px solid #ff7f0e; margin-top: -20px;'>"
-                        html_a += "<h4 style='margin-top:0px; margin-bottom:15px; color:#ff7f0e;'>🏆 집행 비중 TOP 3</h4>"
-                        for i, (idx, row) in enumerate(top3_a.iterrows()):
-                            acc_name = row['항목구분명']
-                            amt = row[actual_col]
-                            pct = (amt / total_a_amt) * 100 if total_a_amt > 0 else 0
-                            html_a += f"<div style='font-size: 20px; font-weight: bold; margin-bottom: 10px;'>{medals[i]} {acc_name} <span style='font-size: 16px; color: #555;'>({pct:.1f}%)</span></div>"
-                        html_a += "</div>"
-                        st.markdown(html_a, unsafe_allow_html=True)
-                        
-                    else:
-                        st.info("선택된 기간의 집행 세부 데이터가 없습니다.")
-                else:
-                    st.warning("집행 파일에 '항목구분명' 열을 찾을 수 없어 분석할 수 없습니다.")
+            # ==========================================
+            # 📂 [2번 화면: 상세 예산 분석 페이지]
+            # ==========================================
+            elif st.session_state.page == 'detail':
+                # 뒤로가기 버튼 배치
+                if st.button("⬅️ 메인 대시보드로 돌아가기"):
+                    st.session_state.page = 'main'
+                    st.rerun()
 
-            st.markdown("---")
-            st.markdown("### 📋 상세 데이터")
-            st.dataframe(df_display.style.format({'예산금액': '{:,.0f}', '집행금액': '{:,.0f}', '집행률(%)': '{:.1f}%'}))
+                st.title(f"📂 {st.session_state.chosen_team} - 상세 경비 집행 분석")
+                st.markdown("---")
+
+                # 선택된 팀의 세부 데이터 필터링
+                df_team_actual = df_actual[df_actual['최종팀명'] == st.session_state.chosen_team].copy()
+                
+                st.markdown(f"### 📊 [현황] 월별 계정별 경비 집행 상세 그리드")
+                st.write("나중에 연동할 수만 줄짜리 '세부 전표 내역'이 들어갈 핵심 자리입니다. 현재는 엑셀에 내장된 월별 세부 지출이 정밀하게 표시됩니다.")
+
+                # 금액 단위 포맷팅 적용할 컬럼들 찾기
+                cols_to_format = ['합계'] + [c for c in df_team_actual.columns if '월' in c]
+                format_dict = {col: '{:,.0f} 원' for col in cols_to_format if col in df_team_actual.columns}
+
+                # 불필요한 가상 컬럼 제거 후 출력
+                display_cols = [c for c in df_team_actual.columns if c not in ['최종팀명', '🎯분기집행']]
+                st.dataframe(df_team_actual[display_cols].style.format(format_dict))
+
+                # 간단한 시각화도 상세 페이지 전용으로 추가
+                st.markdown("---")
+                st.markdown("#### 📈 계정항목별 총 집행 금액 순위")
+                if '항목구분명' in df_team_actual.columns:
+                    df_detail_chart = df_team_actual.groupby('항목구분명')['합계'].sum().reset_index().sort_values(by='합계', ascending=True)
+                    fig_detail = px.bar(df_detail_chart, x='합계', y='항목구분명', orientation='h', color_discrete_sequence=['#ff7f0e'])
+                    fig_detail.update_layout(xaxis_title="누적 지출 (원)", yaxis_title="항목명")
+                    st.plotly_chart(fig_detail, use_container_width=True)
+
         else:
             st.error("데이터 조립 과정에서 오류가 발생했거나 데이터가 비어있습니다.")
     else:
