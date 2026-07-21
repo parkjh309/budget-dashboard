@@ -5,10 +5,31 @@ import os
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
-import streamlit.components.v1 as components  # HTML/JS 기능 추가를 위해 임포트
+import streamlit.components.v1 as components
 
 # 대시보드 페이지 설정
 st.set_page_config(page_title="송도캠퍼스 팀별 경비예산 분석", layout="wide")
+
+# ★★★ [새로 추가된 마법의 코드: 인쇄 전용 CSS 주입] ★★★
+# 인쇄 버튼을 누를 때만 작동하여 보고서 양식으로 화면을 탈바꿈시킵니다.
+print_css = """
+<style>
+@media print {
+    /* 1. 왼쪽 사이드바 숨기기 */
+    [data-testid="stSidebar"] { display: none !important; }
+    /* 2. 상단 스트림릿 헤더(메뉴 버튼 등) 숨기기 */
+    header[data-testid="stHeader"] { display: none !important; }
+    /* 3. 메인 콘텐츠를 A4 용지에 맞게 좌우 여백 없이 꽉 채우기 */
+    .block-container { padding-top: 0px !important; padding-left: 0px !important; padding-right: 0px !important; max-width: 100% !important; }
+    /* 4. 뒤로가기 버튼 및 PDF 인쇄 버튼 자체를 인쇄물에서 숨기기 */
+    .stButton, iframe { display: none !important; }
+    /* 5. 배경을 강제로 하얗게, 글씨를 까맣게 고정 (다크모드 인쇄 방지) */
+    .stApp, .block-container { background-color: white !important; }
+    h1, h2, h3, h4, p, div { color: black !important; }
+}
+</style>
+"""
+st.markdown(print_css, unsafe_allow_html=True)
 
 # 0️⃣ [페이지 라우팅 기억장치 초기화]
 if 'page' not in st.session_state:
@@ -390,7 +411,6 @@ try:
             # ==========================================
             elif st.session_state.page == 'detail':
                 
-                # ★★★ [추가된 기능] 뒤로가기 버튼과 PDF 인쇄 버튼을 나란히 배치 ★★★
                 col_btn1, col_btn2 = st.columns([1, 4])
                 
                 with col_btn1:
@@ -399,7 +419,6 @@ try:
                         st.rerun()
                 
                 with col_btn2:
-                    # 브라우저의 기본 인쇄 창(Ctrl+P)을 호출하는 자바스크립트 버튼
                     components.html(
                         """
                         <button onclick="window.parent.print()" style="
