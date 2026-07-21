@@ -108,11 +108,36 @@ try:
             df_budget.columns = [str(c).strip() for c in df_budget.columns]
             df_actual.columns = [str(c).strip() for c in df_actual.columns]
 
-            # [핵심 수리] 문자열 보이지 않는 공백 완벽 제거 (이름 불일치 방지)
+            # ==========================================
+            # ★★★ [핵심 수리: 세부 비목을 대분류(항목구분명)로 통일 병합] ★★★
+            # ==========================================
+            
+            # 1. 띄어쓰기 등 공백 완전 제거
             if '계정' in df_budget.columns:
                 df_budget['계정'] = df_budget['계정'].astype(str).str.replace(r'\s+', '', regex=True)
             if '항목구분명' in df_actual.columns:
                 df_actual['항목구분명'] = df_actual['항목구분명'].astype(str).str.replace(r'\s+', '', regex=True)
+            if '항목명' in df_actual.columns:
+                df_actual['항목명'] = df_actual['항목명'].astype(str).str.replace(r'\s+', '', regex=True)
+
+            # 2. 예산 데이터의 꼬리표 떼어내고 '통합_항목명' 바구니 만들기
+            if '계정' in df_budget.columns:
+                if '항목명' in df_actual.columns and '항목구분명' in df_actual.columns:
+                    # 집행 파일에서 학습: "부서활동비"는 "복리후생비"다 라는 사전을 만듭니다.
+                    item_to_category = dict(zip(df_actual['항목명'], df_actual['항목구분명']))
+                    mapped = df_budget['계정'].map(item_to_category)
+                    # 사전에 없으면 하이픈(-)이나 언더바(_) 앞의 글자만 똑 떼어옵니다. (예: 복리후생비-식당 -> 복리후생비)
+                    fallback = df_budget['계정'].apply(lambda x: str(x).split('-')[0].split('_')[0])
+                    df_budget['통합_항목명'] = mapped.fillna(fallback)
+                else:
+                    df_budget['통합_항목명'] = df_budget['계정'].apply(lambda x: str(x).split('-')[0].split('_')[0])
+
+            # 3. 집행 데이터도 '통합_항목명' 바구니에 담기
+            if '항목구분명' in df_actual.columns:
+                df_actual['통합_항목명'] = df_actual['항목구분명']
+            elif '항목명' in df_actual.columns:
+                df_actual['통합_항목명'] = df_actual['항목명'].apply(lambda x: str(x).split('-')[0].split('_')[0])
+
 
             # 4. 사이드바 - 분석 주기 선택
             st.sidebar.markdown("### ⚙️ 데이터 매칭 및 예실분석")
@@ -289,7 +314,7 @@ try:
 
                 st.markdown("---")
                 title_text = "전체 팀" if selected_team == "전체보기" else selected_team
-                st.markdown(f"### 🔍 {title_text} - 항목별(제조경비 세부) 상세 분석")
+                st.markdown(f"### 🔍 {title_text} - 대분류 기준(항목구분명) 상세 분석")
 
                 if analysis_type != '월별/통합 분석':
                     if '1분기' in analysis_type:
@@ -301,15 +326,15 @@ try:
                         
                         prev_a_cols = [f"{m:02d}월" for m in prev_months if f"{m:02d}월" in df_a_detail.columns]
                         
-                        if prev_a_cols:
+                        if prev_a_cols and '통합_항목명' in df_a_detail.columns:
                             prev_total = df_a_detail[prev_a_cols].sum().sum()
                             curr_total = df_a_detail[actual_col].sum()
                             diff_total = curr_total - prev_total
                             
-                            df_prev_cat = df_a_detail.groupby('항목구분명')[prev_a_cols].sum().sum(axis=1).reset_index(name='prev_amt')
-                            df_curr_cat = df_a_detail.groupby('항목구분명')[actual_col].sum().reset_index(name='curr_amt')
+                            df_prev_cat = df_a_detail.groupby('통합_항목명')[prev_a_cols].sum().sum(axis=1).reset_index(name='prev_amt')
+                            df_curr_cat = df_a_detail.groupby('통합_항목명')[actual_col].sum().reset_index(name='curr_amt')
                             
-                            df_trend = pd.merge(df_curr_cat, df_prev_cat, on='항목구분명', how='outer').fillna(0)
+                            df_trend = pd.merge(df_curr_cat, df_prev_cat, on='통합_항목명', how='outer').fillna(0)
                             df_trend['diff'] = df_trend['curr_amt'] - df_trend['prev_amt']
                             
                             diff_str = f"{abs(diff_total):,.0f}원 " + ("<span style='color:red;'>증가 🔺</span>" if diff_total > 0 else "<span style='color:blue;'>감소 🔽</span>")
@@ -324,26 +349,24 @@ try:
                                     <li>전 분기 대비 총 집행 금액이 <b>{diff_str}</b>했습니다.</li>
                             """
                             if max_inc_cat is not None:
-                                report_html += f"<li>비용이 가장 많이 증가한 항목은 <b>{max_inc_cat['항목구분명']}</b> (+{max_inc_cat['diff']:,.0f}원) 입니다.</li>"
+                                report_html += f"<li>비용이 가장 많이 증가한 항목은 <b>{max_inc_cat['통합_항목명']}</b> (+{max_inc_cat['diff']:,.0f}원) 입니다.</li>"
                             if max_dec_cat is not None:
-                                report_html += f"<li>비용이 가장 많이 절감된 항목은 <b>{max_dec_cat['항목구분명']}</b> ({max_dec_cat['diff']:,.0f}원) 입니다.</li>"
+                                report_html += f"<li>비용이 가장 많이 절감된 항목은 <b>{max_dec_cat['통합_항목명']}</b> ({max_dec_cat['diff']:,.0f}원) 입니다.</li>"
                                 
                             report_html += "</ul></div>"
                             st.markdown(report_html, unsafe_allow_html=True)
-                        else:
-                            st.info("⚠️ 엑셀 파일 내 전 분기 월별 데이터가 부족하여 비교할 수 없습니다.")
                 
                 col_b, col_a = st.columns(2)
                 
                 with col_b:
                     st.markdown("#### 💰 수립 예산 구성비율")
-                    if '계정' in df_b_detail.columns:
+                    if '통합_항목명' in df_b_detail.columns:
                         df_b_cat = df_b_detail[df_b_detail[budget_col] > 0]
                         if not df_b_cat.empty:
-                            df_b_grouped_cat = df_b_cat.groupby('계정')[budget_col].sum().reset_index()
+                            df_b_grouped_cat = df_b_cat.groupby('통합_항목명')[budget_col].sum().reset_index()
                             df_b_grouped_cat = df_b_grouped_cat.sort_values(by=budget_col, ascending=False).head(10)
                             
-                            fig_b = px.pie(df_b_grouped_cat, values=budget_col, names='계정', hole=0.4, 
+                            fig_b = px.pie(df_b_grouped_cat, values=budget_col, names='통합_항목명', hole=0.4, 
                                            color_discrete_sequence=px.colors.sequential.Blues_r)
                             fig_b.update_traces(textposition='inside', textinfo='percent+label')
                             st.plotly_chart(fig_b, use_container_width=True)
@@ -355,7 +378,7 @@ try:
                             html_b = "<div style='background-color: #f0f8ff; padding: 15px; border-radius: 10px; border-left: 5px solid #1f77b4; margin-top: -20px;'>"
                             html_b += "<h4 style='margin-top:0px; margin-bottom:15px; color:#1f77b4;'>🏆 예산 비중 TOP 3</h4>"
                             for i, (idx, row) in enumerate(top3_b.iterrows()):
-                                acc_name = row['계정']
+                                acc_name = row['통합_항목명']
                                 amt = row[budget_col]
                                 pct = (amt / total_b_amt) * 100 if total_b_amt > 0 else 0
                                 html_b += f"<div style='font-size: 20px; font-weight: bold; margin-bottom: 10px;'>{medals[i]} {acc_name} <span style='font-size: 16px; color: #555;'>({pct:.1f}%)</span></div>"
@@ -364,17 +387,17 @@ try:
                         else:
                             st.info("선택된 기간의 예산 세부 데이터가 없습니다.")
                     else:
-                        st.warning("예산 파일에 '계정' 열을 찾을 수 없어 분석할 수 없습니다.")
+                        st.warning("데이터 연결 오류로 차트를 생성할 수 없습니다.")
 
                 with col_a:
                     st.markdown("#### 💸 실제 집행 구성비율")
-                    if '항목구분명' in df_a_detail.columns:
+                    if '통합_항목명' in df_a_detail.columns:
                         df_a_cat = df_a_detail[df_a_detail[actual_col] > 0]
                         if not df_a_cat.empty:
-                            df_a_grouped_cat = df_a_cat.groupby('항목구분명')[actual_col].sum().reset_index()
+                            df_a_grouped_cat = df_a_cat.groupby('통합_항목명')[actual_col].sum().reset_index()
                             df_a_grouped_cat = df_a_grouped_cat.sort_values(by=actual_col, ascending=False).head(10)
                             
-                            fig_a = px.pie(df_a_grouped_cat, values=actual_col, names='항목구분명', hole=0.4,
+                            fig_a = px.pie(df_a_grouped_cat, values=actual_col, names='통합_항목명', hole=0.4,
                                            color_discrete_sequence=px.colors.sequential.Oranges_r)
                             fig_a.update_traces(textposition='inside', textinfo='percent+label')
                             st.plotly_chart(fig_a, use_container_width=True)
@@ -386,7 +409,7 @@ try:
                             html_a = "<div style='background-color: #fffaf0; padding: 15px; border-radius: 10px; border-left: 5px solid #ff7f0e; margin-top: -20px;'>"
                             html_a += "<h4 style='margin-top:0px; margin-bottom:15px; color:#ff7f0e;'>🏆 집행 비중 TOP 3</h4>"
                             for i, (idx, row) in enumerate(top3_a.iterrows()):
-                                acc_name = row['항목구분명']
+                                acc_name = row['통합_항목명']
                                 amt = row[actual_col]
                                 pct = (amt / total_a_amt) * 100 if total_a_amt > 0 else 0
                                 html_a += f"<div style='font-size: 20px; font-weight: bold; margin-bottom: 10px;'>{medals[i]} {acc_name} <span style='font-size: 16px; color: #555;'>({pct:.1f}%)</span></div>"
@@ -394,8 +417,6 @@ try:
                             st.markdown(html_a, unsafe_allow_html=True)
                         else:
                             st.info("선택된 기간의 집행 세부 데이터가 없습니다.")
-                    else:
-                        st.warning("집행 파일에 '항목구분명' 열을 찾을 수 없어 분석할 수 없습니다.")
 
                 st.markdown("---")
                 st.markdown("### 📋 요약 데이터 표")
@@ -407,29 +428,21 @@ try:
             elif st.session_state.page == 'detail':
                 
                 col_btn1, col_btn2 = st.columns([1, 4])
-                
                 with col_btn1:
                     if st.button("⬅️ 메인 대시보드로 돌아가기"):
                         st.session_state.page = 'main'
                         st.rerun()
-                
                 with col_btn2:
                     components.html(
                         """
                         <button onclick="window.parent.print()" style="
                             background-color: #2e7d32;
-                            color: white;
-                            border: none;
-                            padding: 8px 16px;
-                            border-radius: 5px;
-                            cursor: pointer;
-                            font-size: 14px;
-                            font-weight: bold;
+                            color: white; border: none; padding: 8px 16px; border-radius: 5px;
+                            cursor: pointer; font-size: 14px; font-weight: bold;
                             font-family: 'Malgun Gothic', 'Apple SD Gothic Neo', sans-serif;
                             box-shadow: 1px 1px 3px rgba(0,0,0,0.2);
                         ">🖨️ 현재 페이지 PDF로 저장/인쇄</button>
-                        """,
-                        height=50
+                        """, height=50
                     )
 
                 st.title(f"📂 {st.session_state.chosen_team} - 상세 경비 집행 분석")
@@ -438,17 +451,17 @@ try:
                 df_a_detail = df_actual[df_actual['최종팀명'] == st.session_state.chosen_team].copy()
 
                 st.markdown("---")
-                st.markdown(f"### 🎯 항목별 예산 대비 집행률 분석 ({analysis_type})")
-                st.write("항목별로 예산이 얼마나 할당되었고, 얼마나 남았는지 직관적으로 확인하세요.")
+                st.markdown(f"### 🎯 대분류(항목구분명) 예산 대비 집행률 분석 ({analysis_type})")
+                st.write("하위 비목들이 자동으로 상위 항목구분명으로 병합되었습니다. 직관적으로 집행 현황을 확인하세요.")
 
-                if '계정' in df_b_detail.columns and '항목구분명' in df_a_detail.columns:
-                    df_b_item = df_b_detail.groupby('계정')[budget_col].sum().reset_index()
-                    df_b_item.rename(columns={'계정': '항목명', budget_col: '예산금액'}, inplace=True)
+                if '통합_항목명' in df_b_detail.columns and '통합_항목명' in df_a_detail.columns:
+                    df_b_item = df_b_detail.groupby('통합_항목명')[budget_col].sum().reset_index()
+                    df_b_item.rename(columns={'통합_항목명': '대분류 항목명', budget_col: '예산금액'}, inplace=True)
                     
-                    df_a_item = df_a_detail.groupby('항목구분명')[actual_col].sum().reset_index()
-                    df_a_item.rename(columns={'항목구분명': '항목명', actual_col: '집행금액'}, inplace=True)
+                    df_a_item = df_a_detail.groupby('통합_항목명')[actual_col].sum().reset_index()
+                    df_a_item.rename(columns={'통합_항목명': '대분류 항목명', actual_col: '집행금액'}, inplace=True)
                     
-                    df_item_merged = pd.merge(df_b_item, df_a_item, on='항목명', how='outer').fillna(0)
+                    df_item_merged = pd.merge(df_b_item, df_a_item, on='대분류 항목명', how='outer').fillna(0)
                     
                     df_item_merged['잔여예산'] = df_item_merged['예산금액'] - df_item_merged['집행금액']
                     df_item_merged['집행률(%)'] = df_item_merged.apply(
@@ -458,13 +471,10 @@ try:
                     df_item_merged = df_item_merged[(df_item_merged['예산금액'] > 0) | (df_item_merged['집행금액'] > 0)]
                     df_item_merged = df_item_merged.sort_values(by='집행률(%)', ascending=False)
                     
-                    # ★★★ [수정 완료: matplotlib 에러 방지용 안전한 상태 알림 기능] ★★★
-                    # 그라데이션 대신 이모지로 한눈에 상태를 경고해 줍니다.
                     df_item_merged['현재 상태'] = df_item_merged['집행률(%)'].apply(
                         lambda x: '🚨 위험 (90% 이상)' if x >= 90 else ('⚠️ 주의 (70% 이상)' if x >= 70 else '✅ 안전')
                     )
                     
-                    # 이제 어떤 버전의 파이썬 환경이든 100% 에러 없이 표가 그려집니다.
                     st.dataframe(
                         df_item_merged.style.format({
                             '예산금액': '{:,.0f} 원',
@@ -474,18 +484,19 @@ try:
                         }),
                         use_container_width=True
                     )
-                else:
-                    st.warning("데이터에 '계정' 또는 '항목구분명' 열이 없어 비교할 수 없습니다.")
 
+                # 메인 페이지 차트 및 하단 요약 그리드도 싹 대분류로 통일
                 st.markdown("---")
-                st.markdown(f"### 📊 월별 전체 집행 내역 그리드")
-                st.write("나중에 연동할 수만 줄짜리 '세부 전표 내역'이 들어갈 핵심 자리입니다. 현재는 엑셀에 내장된 월별 세부 지출이 정밀하게 표시됩니다.")
+                st.markdown(f"### 📊 월별 대분류(항목구분명) 집행 요약 그리드")
+                st.write("월별 지출 내역 또한 자잘한 비목을 하나로 합쳐 대분류 기준으로 깔끔하게 정리했습니다.")
 
-                cols_to_format = ['합계'] + [c for c in df_a_detail.columns if '월' in c]
-                format_dict = {col: '{:,.0f} 원' for col in cols_to_format if col in df_a_detail.columns}
-
-                display_cols = [c for c in df_a_detail.columns if c not in ['최종팀명', '🎯분기집행']]
-                st.dataframe(df_a_detail[display_cols].style.format(format_dict))
+                cols_to_sum = ['합계'] + [c for c in df_a_detail.columns if '월' in c]
+                if '통합_항목명' in df_a_detail.columns:
+                    df_a_grid = df_a_detail.groupby('통합_항목명')[cols_to_sum].sum().reset_index()
+                    df_a_grid.rename(columns={'통합_항목명': '대분류 항목명'}, inplace=True)
+                    
+                    format_dict = {col: '{:,.0f} 원' for col in cols_to_sum if col in df_a_grid.columns}
+                    st.dataframe(df_a_grid.style.format(format_dict), use_container_width=True)
 
         else:
             st.error("데이터 조립 과정에서 오류가 발생했거나 데이터가 비어있습니다.")
