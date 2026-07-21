@@ -5,18 +5,19 @@ import os
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+import streamlit.components.v1 as components  # HTML/JS 기능 추가를 위해 임포트
 
 # 대시보드 페이지 설정
 st.set_page_config(page_title="송도캠퍼스 팀별 경비예산 분석", layout="wide")
 
 # 0️⃣ [페이지 라우팅 기억장치 초기화]
 if 'page' not in st.session_state:
-    st.session_state.page = 'main'  # 기본값은 메인 화면
+    st.session_state.page = 'main'
 if 'chosen_team' not in st.session_state:
     st.session_state.chosen_team = '전체보기'
 
 try:
-    # --- [CI 구역: 구버전 완벽 호환 정중앙 정렬] ---
+    # --- [CI 구역] ---
     logo_path = '「반출」logo.png'  
     
     with st.sidebar:
@@ -215,14 +216,11 @@ try:
                 st.title("📊 송도캠퍼스 팀별 경비예산 분석")
                 st.markdown("---")
                 
-                # 팀 조회 박스
                 selected_team = st.selectbox("📌 조회할 팀을 선택하세요", ["전체보기"] + list(cc_mapping.values()))
 
-                # ★★★ [핵심 신설] 특정 팀 선택 시 '상세내역 버튼'을 상단에 큼직하게 노출 ★★★
                 if selected_team != "전체보기":
                     page_col1, page_col2 = st.columns([5, 1])
                     with page_col2:
-                        # 버튼을 누르면 기억장치를 'detail'로 바꾸고 화면을 즉시 새로고침합니다.
                         if st.button("📂 상세내역 분석 페이지 ➡️"):
                             st.session_state.page = 'detail'
                             st.session_state.chosen_team = selected_team
@@ -258,7 +256,7 @@ try:
                 df_plot['예산금액_라벨'] = df_plot['예산금액'].apply(convert_to_korean_amount)
                 df_plot['집행금액_라벨'] = df_plot['집행금액'].apply(convert_to_korean_amount)
 
-                # 막대 그래프 배치
+                # 막대 그래프
                 st.markdown("### 📈 예산 대비 집행 현황 (통합)")
                 fig = px.bar(
                     df_plot, x='팀명', y=['예산금액', '집행금액'], barmode='group',
@@ -272,12 +270,11 @@ try:
                 fig.update_layout(xaxis_title="팀명", yaxis_title="금액 (원)", legend_title="구분", yaxis=dict(tickformat=",.0f"), bargap=current_bargap, height=450)
                 st.plotly_chart(fig, use_container_width=True)
 
-                # --- [세부 항목 분석 구역] ---
+                # [세부 항목 분석 구역]
                 st.markdown("---")
                 title_text = "전체 팀" if selected_team == "전체보기" else selected_team
                 st.markdown(f"### 🔍 {title_text} - 항목별(제조경비 세부) 상세 분석")
 
-                # [분기별 요약 브리핑 리포트 창]
                 if analysis_type != '월별/통합 분석':
                     if '1분기' in analysis_type:
                         st.info("💡 1분기 데이터입니다. (올해 이전 분기 데이터가 존재하지 않아 전 분기 비교가 생략됩니다.)")
@@ -322,7 +319,6 @@ try:
                 
                 col_b, col_a = st.columns(2)
                 
-                # [좌측] 예산 비율 및 TOP 3
                 with col_b:
                     st.markdown("#### 💰 수립 예산 구성비율")
                     if '계정' in df_b_detail.columns:
@@ -354,7 +350,6 @@ try:
                     else:
                         st.warning("예산 파일에 '계정' 열을 찾을 수 없어 분석할 수 없습니다.")
 
-                # [우측] 집행 비율 및 TOP 3
                 with col_a:
                     st.markdown("#### 💸 실제 집행 구성비율")
                     if '항목구분명' in df_a_detail.columns:
@@ -394,10 +389,34 @@ try:
             # 📂 [2번 화면: 상세 예산 분석 페이지]
             # ==========================================
             elif st.session_state.page == 'detail':
-                # 뒤로가기 버튼 배치
-                if st.button("⬅️ 메인 대시보드로 돌아가기"):
-                    st.session_state.page = 'main'
-                    st.rerun()
+                
+                # ★★★ [추가된 기능] 뒤로가기 버튼과 PDF 인쇄 버튼을 나란히 배치 ★★★
+                col_btn1, col_btn2 = st.columns([1, 4])
+                
+                with col_btn1:
+                    if st.button("⬅️ 메인 대시보드로 돌아가기"):
+                        st.session_state.page = 'main'
+                        st.rerun()
+                
+                with col_btn2:
+                    # 브라우저의 기본 인쇄 창(Ctrl+P)을 호출하는 자바스크립트 버튼
+                    components.html(
+                        """
+                        <button onclick="window.parent.print()" style="
+                            background-color: #2e7d32;
+                            color: white;
+                            border: none;
+                            padding: 8px 16px;
+                            border-radius: 5px;
+                            cursor: pointer;
+                            font-size: 14px;
+                            font-weight: bold;
+                            font-family: 'Malgun Gothic', 'Apple SD Gothic Neo', sans-serif;
+                            box-shadow: 1px 1px 3px rgba(0,0,0,0.2);
+                        ">🖨️ 현재 페이지 PDF로 저장/인쇄</button>
+                        """,
+                        height=50
+                    )
 
                 st.title(f"📂 {st.session_state.chosen_team} - 상세 경비 집행 분석")
                 st.markdown("---")
@@ -408,15 +427,12 @@ try:
                 st.markdown(f"### 📊 [현황] 월별 계정별 경비 집행 상세 그리드")
                 st.write("나중에 연동할 수만 줄짜리 '세부 전표 내역'이 들어갈 핵심 자리입니다. 현재는 엑셀에 내장된 월별 세부 지출이 정밀하게 표시됩니다.")
 
-                # 금액 단위 포맷팅 적용할 컬럼들 찾기
                 cols_to_format = ['합계'] + [c for c in df_team_actual.columns if '월' in c]
                 format_dict = {col: '{:,.0f} 원' for col in cols_to_format if col in df_team_actual.columns}
 
-                # 불필요한 가상 컬럼 제거 후 출력
                 display_cols = [c for c in df_team_actual.columns if c not in ['최종팀명', '🎯분기집행']]
                 st.dataframe(df_team_actual[display_cols].style.format(format_dict))
 
-                # 간단한 시각화도 상세 페이지 전용으로 추가
                 st.markdown("---")
                 st.markdown("#### 📈 계정항목별 총 집행 금액 순위")
                 if '항목구분명' in df_team_actual.columns:
