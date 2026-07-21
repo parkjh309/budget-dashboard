@@ -108,7 +108,7 @@ try:
             df_budget.columns = [str(c).strip() for c in df_budget.columns]
             df_actual.columns = [str(c).strip() for c in df_actual.columns]
 
-            # ★★★ [핵심 수리] 문자열 보이지 않는 공백 완벽 제거 (오류 해결) ★★★
+            # [핵심 수리] 문자열 보이지 않는 공백 완벽 제거 (이름 불일치 방지)
             if '계정' in df_budget.columns:
                 df_budget['계정'] = df_budget['계정'].astype(str).str.replace(r'\s+', '', regex=True)
             if '항목구분명' in df_actual.columns:
@@ -135,7 +135,6 @@ try:
             for i in range(1, 13):
                 actual_real_cols[f"{i:02d}월"] = f"{i:02d}월"
 
-            # 1. 일반 월별 분석
             if analysis_type == '월별/통합 분석':
                 b_keys = [k for k in display_names if budget_real_cols.get(k) in df_budget.columns]
                 a_keys = [k for k in display_names if actual_real_cols.get(k) in df_actual.columns]
@@ -152,7 +151,6 @@ try:
                 df_budget[budget_col] = pd.to_numeric(df_budget[budget_col].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
                 df_actual[actual_col] = pd.to_numeric(df_actual[actual_col].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
             
-            # 2. 분기별 분석
             else:
                 if '1분기' in analysis_type: months = [1, 2, 3]
                 elif '2분기' in analysis_type: months = [4, 5, 6]
@@ -256,7 +254,6 @@ try:
                     df_b_detail = df_budget.copy()
                     df_a_detail = df_actual.copy()
 
-                # KPI 요약 지표
                 st.markdown("### 💡 팀 통합 요약 지표")
                 total_budget = df_display['예산금액'].sum()
                 total_actual = df_display['집행금액'].sum()
@@ -277,7 +274,6 @@ try:
                 df_plot['예산금액_라벨'] = df_plot['예산금액'].apply(convert_to_korean_amount)
                 df_plot['집행금액_라벨'] = df_plot['집행금액'].apply(convert_to_korean_amount)
 
-                # 막대 그래프
                 st.markdown("### 📈 예산 대비 집행 현황 (통합)")
                 fig = px.bar(
                     df_plot, x='팀명', y=['예산금액', '집행금액'], barmode='group',
@@ -291,7 +287,6 @@ try:
                 fig.update_layout(xaxis_title="팀명", yaxis_title="금액 (원)", legend_title="구분", yaxis=dict(tickformat=",.0f"), bargap=current_bargap, height=450)
                 st.plotly_chart(fig, use_container_width=True)
 
-                # [세부 항목 분석 구역]
                 st.markdown("---")
                 title_text = "전체 팀" if selected_team == "전체보기" else selected_team
                 st.markdown(f"### 🔍 {title_text} - 항목별(제조경비 세부) 상세 분석")
@@ -439,27 +434,22 @@ try:
 
                 st.title(f"📂 {st.session_state.chosen_team} - 상세 경비 집행 분석")
                 
-                # 선택된 팀의 세부 데이터 필터링
                 df_b_detail = df_budget[df_budget['최종팀명'] == st.session_state.chosen_team].copy()
                 df_a_detail = df_actual[df_actual['최종팀명'] == st.session_state.chosen_team].copy()
 
                 st.markdown("---")
                 st.markdown(f"### 🎯 항목별 예산 대비 집행률 분석 ({analysis_type})")
-                st.write("항목별로 예산이 얼마나 할당되었고, 얼마나 남았는지 직관적으로 확인하세요. (집행률이 높을수록 붉게 표시됩니다.)")
+                st.write("항목별로 예산이 얼마나 할당되었고, 얼마나 남았는지 직관적으로 확인하세요.")
 
                 if '계정' in df_b_detail.columns and '항목구분명' in df_a_detail.columns:
-                    # 예산 데이터 합산
                     df_b_item = df_b_detail.groupby('계정')[budget_col].sum().reset_index()
                     df_b_item.rename(columns={'계정': '항목명', budget_col: '예산금액'}, inplace=True)
                     
-                    # 집행 데이터 합산
                     df_a_item = df_a_detail.groupby('항목구분명')[actual_col].sum().reset_index()
                     df_a_item.rename(columns={'항목구분명': '항목명', actual_col: '집행금액'}, inplace=True)
                     
-                    # 계정명(항목명) 기준으로 병합
                     df_item_merged = pd.merge(df_b_item, df_a_item, on='항목명', how='outer').fillna(0)
                     
-                    # 잔여 예산 및 집행률 계산
                     df_item_merged['잔여예산'] = df_item_merged['예산금액'] - df_item_merged['집행금액']
                     df_item_merged['집행률(%)'] = df_item_merged.apply(
                         lambda x: (x['집행금액'] / x['예산금액'] * 100) if x['예산금액'] > 0 else (100 if x['집행금액'] > 0 else 0), axis=1
@@ -468,13 +458,20 @@ try:
                     df_item_merged = df_item_merged[(df_item_merged['예산금액'] > 0) | (df_item_merged['집행금액'] > 0)]
                     df_item_merged = df_item_merged.sort_values(by='집행률(%)', ascending=False)
                     
+                    # ★★★ [수정 완료: matplotlib 에러 방지용 안전한 상태 알림 기능] ★★★
+                    # 그라데이션 대신 이모지로 한눈에 상태를 경고해 줍니다.
+                    df_item_merged['현재 상태'] = df_item_merged['집행률(%)'].apply(
+                        lambda x: '🚨 위험 (90% 이상)' if x >= 90 else ('⚠️ 주의 (70% 이상)' if x >= 70 else '✅ 안전')
+                    )
+                    
+                    # 이제 어떤 버전의 파이썬 환경이든 100% 에러 없이 표가 그려집니다.
                     st.dataframe(
                         df_item_merged.style.format({
                             '예산금액': '{:,.0f} 원',
                             '집행금액': '{:,.0f} 원',
                             '잔여예산': '{:,.0f} 원',
                             '집행률(%)': '{:.1f} %'
-                        }).background_gradient(subset=['집행률(%)'], cmap='Reds', vmin=0, vmax=100),
+                        }),
                         use_container_width=True
                     )
                 else:
