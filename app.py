@@ -6,11 +6,11 @@ import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
-# 대시보드 페이지 설정
-st.set_page_config(page_title="송도캠퍼스 파이낸셜 네비게이터", layout="wide")
+# 대시보드 페이지 설정 (요청하신 제목으로 수정)
+st.set_page_config(page_title="송도캠퍼스 팀별 경비예산 분석", layout="wide")
 
 try:
-    # --- [CI 구역] ---
+    # --- [CI 구역: 구버전 완벽 호환 정중앙 정렬] ---
     logo_path = '「반출」logo.png'  
     
     with st.sidebar:
@@ -30,7 +30,8 @@ try:
         'SM_SDO': '생산지원팀', 'SM_SVO': '밸리데이션팀', 'SM_QSF': '품질관리6팀', 'SM_SQA': '품질보증3팀'
     }
 
-    st.title("📊 송도캠퍼스 팀별 파이낸셜 네비게이터")
+    # 대시보드 메인 제목 (요청하신 제목으로 수정)
+    st.title("📊 송도캠퍼스 팀별 경비예산 분석")
 
     # 1. 파일 자동 탐색
     budget_file = next((f for f in all_files if "예산" in f and (f.endswith('.xlsx') or f.endswith('.csv'))), None)
@@ -257,7 +258,7 @@ try:
             title_text = "전체 팀" if selected_team == "전체보기" else selected_team
             st.markdown(f"### 🔍 {title_text} - 항목별(제조경비 세부) 상세 분석")
 
-            # ★★★ [추가된 기능: 분기별 요약 브리핑 리포트 창] ★★★
+            # [분기별 요약 브리핑 리포트 창]
             if analysis_type != '월별/통합 분석':
                 if '1분기' in analysis_type:
                     st.info("💡 1분기 데이터입니다. (올해 이전 분기 데이터가 존재하지 않아 전 분기 비교가 생략됩니다.)")
