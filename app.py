@@ -108,6 +108,12 @@ try:
             df_budget.columns = [str(c).strip() for c in df_budget.columns]
             df_actual.columns = [str(c).strip() for c in df_actual.columns]
 
+            # ★★★ [핵심 수리] 문자열 보이지 않는 공백 완벽 제거 (오류 해결) ★★★
+            if '계정' in df_budget.columns:
+                df_budget['계정'] = df_budget['계정'].astype(str).str.replace(r'\s+', '', regex=True)
+            if '항목구분명' in df_actual.columns:
+                df_actual['항목구분명'] = df_actual['항목구분명'].astype(str).str.replace(r'\s+', '', regex=True)
+
             # 4. 사이드바 - 분석 주기 선택
             st.sidebar.markdown("### ⚙️ 데이터 매칭 및 예실분석")
             analysis_type = st.sidebar.selectbox(
@@ -433,11 +439,10 @@ try:
 
                 st.title(f"📂 {st.session_state.chosen_team} - 상세 경비 집행 분석")
                 
-                # 선택된 팀의 세부 데이터 필터링 (사이드바에서 고른 월/분기에 맞춰)
+                # 선택된 팀의 세부 데이터 필터링
                 df_b_detail = df_budget[df_budget['최종팀명'] == st.session_state.chosen_team].copy()
                 df_a_detail = df_actual[df_actual['최종팀명'] == st.session_state.chosen_team].copy()
 
-                # ★★★ [신규 핵심 기능: 항목별(계정별) 예산 대비 집행 현황] ★★★
                 st.markdown("---")
                 st.markdown(f"### 🎯 항목별 예산 대비 집행률 분석 ({analysis_type})")
                 st.write("항목별로 예산이 얼마나 할당되었고, 얼마나 남았는지 직관적으로 확인하세요. (집행률이 높을수록 붉게 표시됩니다.)")
@@ -451,7 +456,7 @@ try:
                     df_a_item = df_a_detail.groupby('항목구분명')[actual_col].sum().reset_index()
                     df_a_item.rename(columns={'항목구분명': '항목명', actual_col: '집행금액'}, inplace=True)
                     
-                    # 계정명(항목명) 기준으로 병합 (Full Outer Join)
+                    # 계정명(항목명) 기준으로 병합
                     df_item_merged = pd.merge(df_b_item, df_a_item, on='항목명', how='outer').fillna(0)
                     
                     # 잔여 예산 및 집행률 계산
@@ -460,11 +465,9 @@ try:
                         lambda x: (x['집행금액'] / x['예산금액'] * 100) if x['예산금액'] > 0 else (100 if x['집행금액'] > 0 else 0), axis=1
                     )
                     
-                    # 0원 데이터 청소 및 정렬
                     df_item_merged = df_item_merged[(df_item_merged['예산금액'] > 0) | (df_item_merged['집행금액'] > 0)]
                     df_item_merged = df_item_merged.sort_values(by='집행률(%)', ascending=False)
                     
-                    # 데이터프레임 스타일링 출력 (그라데이션 색상 적용)
                     st.dataframe(
                         df_item_merged.style.format({
                             '예산금액': '{:,.0f} 원',
@@ -477,7 +480,6 @@ try:
                 else:
                     st.warning("데이터에 '계정' 또는 '항목구분명' 열이 없어 비교할 수 없습니다.")
 
-                # 기존 상세 그리드 및 차트
                 st.markdown("---")
                 st.markdown(f"### 📊 월별 전체 집행 내역 그리드")
                 st.write("나중에 연동할 수만 줄짜리 '세부 전표 내역'이 들어갈 핵심 자리입니다. 현재는 엑셀에 내장된 월별 세부 지출이 정밀하게 표시됩니다.")
