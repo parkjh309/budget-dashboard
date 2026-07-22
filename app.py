@@ -270,26 +270,26 @@ try:
                     df_b_detail = df_budget.copy()
                     df_a_detail = df_actual.copy()
 
-                # ★★★ [대대적 전면 개편: 배경색 카드 및 정렬 구조 커스텀] ★★★
+                # 요약 지표 데이터 연산
                 total_budget = df_display['예산금액'].sum()
                 total_actual = df_display['집행금액'].sum()
                 avg_rate = (total_actual / total_budget * 100) if total_budget > 0 else 0
 
-                # 요청에 매칭되는 시인성 최상위 HTML 대시보드 스코어 카드 주입
+                # ★★★ [수정 포인트 1] 요약 카드에서 수립예산 강도를 낮추고 집행금액의 시인성을 극대화 ★★★
                 summary_card_html = f"""
-                <div style='background-color: #f1f3f9; padding: 22px; border-radius: 12px; border-left: 6px solid #ff7f0e; margin-top: 15px; margin-bottom: 25px; box-shadow: 1px 1px 4px rgba(0,0,0,0.06);'>
+                <div style='background-color: #f8fafc; padding: 22px; border-radius: 12px; border-left: 6px solid #ff7f0e; margin-top: 15px; margin-bottom: 25px; box-shadow: 1px 1px 4px rgba(0,0,0,0.05);'>
                     <div style='display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 15px;'>
-                        <div style='flex: 1; min-width: 220px; border-right: 1px solid #ddd; padding-right: 10px;'>
-                            <div style='font-size: 14px; color: #555555; font-weight: bold; margin-bottom: 3px;'>📊 평균 집행률 (우선 강조)</div>
+                        <div style='flex: 1; min-width: 220px; border-right: 1px solid #e2e8f0; padding-right: 10px;'>
+                            <div style='font-size: 14px; color: #475569; font-weight: bold; margin-bottom: 3px;'>📊 평균 집행률</div>
                             <div style='font-size: 38px; font-weight: 900; color: #ff7f0e; letter-spacing: -1px;'>{avg_rate:.1f} %</div>
                         </div>
-                        <div style='flex: 1; min-width: 220px; border-right: 1px solid #ddd; padding-right: 10px;'>
-                            <div style='font-size: 13px; color: #666666; margin-bottom: 5px;'>💰 총 수립 예산</div>
-                            <div style='font-size: 26px; font-weight: bold; color: #232323;'>{total_budget:,.0f} 원</div>
+                        <div style='flex: 1; min-width: 220px; border-right: 1px solid #e2e8f0; padding-right: 10px;'>
+                            <div style='font-size: 13px; color: #94a3b8; margin-bottom: 5px;'>💰 총 수립 예산 (조정됨)</div>
+                            <div style='font-size: 22px; font-weight: normal; color: #64748b;'>{total_budget:,.0f} 원</div>
                         </div>
                         <div style='flex: 1; min-width: 220px;'>
-                            <div style='font-size: 13px; color: #666666; margin-bottom: 5px;'>💸 누적 집행 금액</div>
-                            <div style='font-size: 26px; font-weight: bold; color: #232323;'>{total_actual:,.0f} 원</div>
+                            <div style='font-size: 14px; color: #1e293b; font-weight: bold; margin-bottom: 5px;'>💸 누적 집행 금액 (강조)</div>
+                            <div style='font-size: 30px; font-weight: 800; color: #0f172a;'>{total_actual:,.0f} 원</div>
                         </div>
                     </div>
                 </div>
@@ -306,11 +306,11 @@ try:
                 df_plot['예산금액_라벨'] = df_plot['예산금액'].apply(convert_to_korean_amount)
                 df_plot['집행금액_라벨'] = df_plot['집행금액'].apply(convert_to_korean_amount)
 
-                # 막대 그래프
+                # ★★★ [수정 포인트 2] 막대 그래프의 수립예산 파란색을 흐린 소프트 회색(#cbd5e1)으로 변경 ★★★
                 st.markdown("### 📈 예산 대비 집행 현황 (통합)")
                 fig = px.bar(
                     df_plot, x='팀명', y=['예산금액', '집행금액'], barmode='group',
-                    color_discrete_sequence=['#1f77b4', '#ff7f0e']
+                    color_discrete_sequence=['#cbd5e1', '#ff7f0e'] # 파란색 탈피! 예산은 배경 톤으로, 집행은 오렌지로 강조!
                 )
                 for i, t in enumerate(fig.data):
                     t.text = df_plot['예산금액_라벨'] if t.name == '예산금액' else df_plot['집행금액_라벨']
