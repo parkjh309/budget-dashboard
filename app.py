@@ -108,11 +108,7 @@ try:
             df_budget.columns = [str(c).strip() for c in df_budget.columns]
             df_actual.columns = [str(c).strip() for c in df_actual.columns]
 
-            # ==========================================
-            # ★★★ [핵심 수리: 세부 비목을 대분류(항목구분명)로 통일 병합] ★★★
-            # ==========================================
-            
-            # 1. 띄어쓰기 등 공백 완전 제거
+            # [대분류 명칭 정제 및 통일]
             if '계정' in df_budget.columns:
                 df_budget['계정'] = df_budget['계정'].astype(str).str.replace(r'\s+', '', regex=True)
             if '항목구분명' in df_actual.columns:
@@ -120,24 +116,19 @@ try:
             if '항목명' in df_actual.columns:
                 df_actual['항목명'] = df_actual['항목명'].astype(str).str.replace(r'\s+', '', regex=True)
 
-            # 2. 예산 데이터의 꼬리표 떼어내고 '통합_항목명' 바구니 만들기
             if '계정' in df_budget.columns:
                 if '항목명' in df_actual.columns and '항목구분명' in df_actual.columns:
-                    # 집행 파일에서 학습: "부서활동비"는 "복리후생비"다 라는 사전을 만듭니다.
                     item_to_category = dict(zip(df_actual['항목명'], df_actual['항목구분명']))
                     mapped = df_budget['계정'].map(item_to_category)
-                    # 사전에 없으면 하이픈(-)이나 언더바(_) 앞의 글자만 똑 떼어옵니다. (예: 복리후생비-식당 -> 복리후생비)
                     fallback = df_budget['계정'].apply(lambda x: str(x).split('-')[0].split('_')[0])
                     df_budget['통합_항목명'] = mapped.fillna(fallback)
                 else:
                     df_budget['통합_항목명'] = df_budget['계정'].apply(lambda x: str(x).split('-')[0].split('_')[0])
 
-            # 3. 집행 데이터도 '통합_항목명' 바구니에 담기
             if '항목구분명' in df_actual.columns:
                 df_actual['통합_항목명'] = df_actual['항목구분명']
             elif '항목명' in df_actual.columns:
                 df_actual['통합_항목명'] = df_actual['항목명'].apply(lambda x: str(x).split('-')[0].split('_')[0])
-
 
             # 4. 사이드바 - 분석 주기 선택
             st.sidebar.markdown("### ⚙️ 데이터 매칭 및 예실분석")
@@ -279,15 +270,31 @@ try:
                     df_b_detail = df_budget.copy()
                     df_a_detail = df_actual.copy()
 
-                st.markdown("### 💡 팀 통합 요약 지표")
+                # ★★★ [대대적 전면 개편: 배경색 카드 및 정렬 구조 커스텀] ★★★
                 total_budget = df_display['예산금액'].sum()
                 total_actual = df_display['집행금액'].sum()
                 avg_rate = (total_actual / total_budget * 100) if total_budget > 0 else 0
 
-                col1, col2, col3 = st.columns(3)
-                col1.metric("총 수립 예산", f"{total_budget:,.0f} 원")
-                col2.metric("누적 집행 금액", f"{total_actual:,.0f} 원")
-                col3.metric("평균 집행률", f"{avg_rate:.1f} %")
+                # 요청에 매칭되는 시인성 최상위 HTML 대시보드 스코어 카드 주입
+                summary_card_html = f"""
+                <div style='background-color: #f1f3f9; padding: 22px; border-radius: 12px; border-left: 6px solid #ff7f0e; margin-top: 15px; margin-bottom: 25px; box-shadow: 1px 1px 4px rgba(0,0,0,0.06);'>
+                    <div style='display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 15px;'>
+                        <div style='flex: 1; min-width: 220px; border-right: 1px solid #ddd; padding-right: 10px;'>
+                            <div style='font-size: 14px; color: #555555; font-weight: bold; margin-bottom: 3px;'>📊 평균 집행률 (우선 강조)</div>
+                            <div style='font-size: 38px; font-weight: 900; color: #ff7f0e; letter-spacing: -1px;'>{avg_rate:.1f} %</div>
+                        </div>
+                        <div style='flex: 1; min-width: 220px; border-right: 1px solid #ddd; padding-right: 10px;'>
+                            <div style='font-size: 13px; color: #666666; margin-bottom: 5px;'>💰 총 수립 예산</div>
+                            <div style='font-size: 26px; font-weight: bold; color: #232323;'>{total_budget:,.0f} 원</div>
+                        </div>
+                        <div style='flex: 1; min-width: 220px;'>
+                            <div style='font-size: 13px; color: #666666; margin-bottom: 5px;'>💸 누적 집행 금액</div>
+                            <div style='font-size: 26px; font-weight: bold; color: #232323;'>{total_actual:,.0f} 원</div>
+                        </div>
+                    </div>
+                </div>
+                """
+                st.markdown(summary_card_html, unsafe_allow_html=True)
 
                 def convert_to_korean_amount(val):
                     if val >= 100000000: return f"{val / 100000000:.1f}억 원"
@@ -299,6 +306,7 @@ try:
                 df_plot['예산금액_라벨'] = df_plot['예산금액'].apply(convert_to_korean_amount)
                 df_plot['집행금액_라벨'] = df_plot['집행금액'].apply(convert_to_korean_amount)
 
+                # 막대 그래프
                 st.markdown("### 📈 예산 대비 집행 현황 (통합)")
                 fig = px.bar(
                     df_plot, x='팀명', y=['예산금액', '집행금액'], barmode='group',
@@ -485,7 +493,6 @@ try:
                         use_container_width=True
                     )
 
-                # 메인 페이지 차트 및 하단 요약 그리드도 싹 대분류로 통일
                 st.markdown("---")
                 st.markdown(f"### 📊 월별 대분류(항목구분명) 집행 요약 그리드")
                 st.write("월별 지출 내역 또한 자잘한 비목을 하나로 합쳐 대분류 기준으로 깔끔하게 정리했습니다.")
