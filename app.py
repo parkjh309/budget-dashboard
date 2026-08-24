@@ -32,7 +32,7 @@ if 'chosen_team' not in st.session_state:
     st.session_state.chosen_team = '전체보기'
 
 try:
-    # --- [CI 구역] ---
+    # --- [CI 구역 및 사이드바 상단 스위치] ---
     logo_path = '「반출」logo.png'  
     
     with st.sidebar:
@@ -44,6 +44,13 @@ try:
         st.markdown("<h1 style='text-align: center; font-size: 32px; margin-top: 5px; font-weight: bold;'>동아ST</h1>", unsafe_allow_html=True)
         st.markdown("---")
 
+        # ★★★ [신규 핵심 기능: 연말 추정치 토글 스위치] ★★★
+        st.markdown("### 🔮 2027년 예산 수립용")
+        is_forecast_mode = st.toggle("2026년 연말 추정치(예상) 모드", value=False)
+        if is_forecast_mode:
+            st.info("💡 **예상 모드 켜짐:** 파일명에 '평균/예상/추정'이 포함된 데이터로 분석합니다.")
+        st.markdown("---")
+
     all_files = os.listdir('.')
     
     # 7개 팀 매칭 정보
@@ -52,11 +59,18 @@ try:
         'SM_SDO': '생산지원팀', 'SM_SVO': '밸리데이션팀', 'SM_QSF': '품질관리6팀', 'SM_SQA': '품질보증3팀'
     }
 
-    # 1. 파일 자동 탐색
+    # 1. 파일 자동 탐색 로직 (모드에 따라 읽는 파일이 달라집니다)
     budget_file = next((f for f in all_files if "예산" in f and (f.endswith('.xlsx') or f.endswith('.csv'))), None)
-    actual_file = next((f for f in all_files if ("경비집행" in f or "집행" in f) and (f.endswith('.xlsx') or f.endswith('.csv'))), None)
+    
+    # 평균/예상 파일 찾기
+    forecast_file = next((f for f in all_files if any(k in f for k in ["평균", "예상", "추정"]) and (f.endswith('.xlsx') or f.endswith('.csv'))), None)
+    # 일반 팩트 집행 파일 찾기
+    actual_file = next((f for f in all_files if ("경비집행" in f or "집행" in f) and f != forecast_file and (f.endswith('.xlsx') or f.endswith('.csv'))), None)
 
-    if budget_file and actual_file:
+    # 스위치 ON/OFF에 따라 타겟 집행 파일을 결정합니다.
+    target_actual_file = forecast_file if is_forecast_mode else actual_file
+
+    if budget_file and target_actual_file:
         # 2. 예산 데이터 로드
         df_budget_list = []
         if budget_file.endswith('.xlsx'):
@@ -81,11 +95,11 @@ try:
 
         df_budget = pd.concat(df_budget_list, ignore_index=True) if df_budget_list else pd.DataFrame()
 
-        # 3. 집행 데이터 로드
-        if actual_file.endswith('.xlsx'):
-            df_actual = pd.read_excel(actual_file)
+        # 3. 집행(또는 예상) 데이터 로드
+        if target_actual_file.endswith('.xlsx'):
+            df_actual = pd.read_excel(target_actual_file)
         else:
-            df_actual = pd.read_csv(actual_file)
+            df_actual = pd.read_csv(target_actual_file)
 
         if not df_actual.empty:
             if '항목코드' in df_actual.columns:
@@ -248,7 +262,9 @@ try:
             # 🏁 [1번 화면: 메인 대시보드 페이지]
             # ==========================================
             if st.session_state.page == 'main':
-                st.title("📊 송도캠퍼스 팀별 경비예산 분석")
+                # 스위치 상태에 따라 메인 타이틀 변경
+                main_title_text = "📊 송도캠퍼스 팀별 경비예산 분석 (2026년 연말 추정치 🔮)" if is_forecast_mode else "📊 송도캠퍼스 팀별 경비예산 분석"
+                st.title(main_title_text)
                 st.markdown("---")
                 
                 selected_team = st.selectbox("📌 조회할 팀을 선택하세요", ["전체보기"] + list(cc_mapping.values()))
@@ -275,12 +291,16 @@ try:
                 total_actual = df_display['집행금액'].sum()
                 avg_rate = (total_actual / total_budget * 100) if total_budget > 0 else 0
 
-                # ★★★ [수정 완료] (조정됨), (강조) 등 불필요한 텍스트 완벽 제거 ★★★
+                # 스위치 상태에 따라 카드 텍스트 변경
+                rate_title = "📊 연말 예상 집행률" if is_forecast_mode else "📊 평균 집행률"
+                actual_title = "💸 연말 예상 집행 금액" if is_forecast_mode else "💸 누적 집행 금액"
+
+                # 괄호 안의 (조정됨), (강조) 텍스트 완전히 삭제
                 summary_card_html = f"""
                 <div style='background-color: #f8fafc; padding: 22px; border-radius: 12px; border-left: 6px solid #ff7f0e; margin-top: 15px; margin-bottom: 25px; box-shadow: 1px 1px 4px rgba(0,0,0,0.05);'>
                     <div style='display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 15px;'>
                         <div style='flex: 1; min-width: 220px; border-right: 1px solid #e2e8f0; padding-right: 10px;'>
-                            <div style='font-size: 14px; color: #475569; font-weight: bold; margin-bottom: 3px;'>📊 평균 집행률</div>
+                            <div style='font-size: 14px; color: #475569; font-weight: bold; margin-bottom: 3px;'>{rate_title}</div>
                             <div style='font-size: 38px; font-weight: 900; color: #ff7f0e; letter-spacing: -1px;'>{avg_rate:.1f} %</div>
                         </div>
                         <div style='flex: 1; min-width: 220px; border-right: 1px solid #e2e8f0; padding-right: 10px;'>
@@ -288,7 +308,7 @@ try:
                             <div style='font-size: 22px; font-weight: normal; color: #64748b;'>{total_budget:,.0f} 원</div>
                         </div>
                         <div style='flex: 1; min-width: 220px;'>
-                            <div style='font-size: 14px; color: #1e293b; font-weight: bold; margin-bottom: 5px;'>💸 누적 집행 금액</div>
+                            <div style='font-size: 14px; color: #1e293b; font-weight: bold; margin-bottom: 5px;'>{actual_title}</div>
                             <div style='font-size: 30px; font-weight: 800; color: #0f172a;'>{total_actual:,.0f} 원</div>
                         </div>
                     </div>
@@ -453,7 +473,7 @@ try:
                         """, height=50
                     )
 
-                st.title(f"📂 {st.session_state.chosen_team} - 상세 경비 집행 분석")
+                st.title(f"📂 {st.session_state.chosen_team} - 상세 경비 집행 분석{' (연말 추정치 🔮)' if is_forecast_mode else ''}")
                 
                 df_b_detail = df_budget[df_budget['최종팀명'] == st.session_state.chosen_team].copy()
                 df_a_detail = df_actual[df_actual['최종팀명'] == st.session_state.chosen_team].copy()
@@ -506,9 +526,16 @@ try:
                     st.dataframe(df_a_grid.style.format(format_dict), use_container_width=True)
 
         else:
-            st.error("데이터 조립 과정에서 오류가 발생했거나 데이터가 비어있습니다.")
+            if not budget_file:
+                st.error("❌ '예산' 파일이 없습니다. 깃허브에 업로드해주세요.")
+            elif is_forecast_mode and not forecast_file:
+                st.error("❌ 파일명에 '평균', '예상', '추정' 중 하나가 포함된 예상치 파일이 없습니다. 깃허브에 업로드해주세요.")
+            elif not is_forecast_mode and not actual_file:
+                st.error("❌ '경비집행' 또는 '집행' 파일이 없습니다. 깃허브에 업로드해주세요.")
+            else:
+                st.error("데이터 조립 과정에서 오류가 발생했거나 데이터가 비어있습니다.")
     else:
-        st.error("❌ 깃허브 폴더에서 '예산' 또는 '경비집행' 파일을 찾을 수 없습니다.")
+        st.error("❌ 필요한 파일(예산 파일 및 집행/예상 파일)을 깃허브 폴더에서 찾을 수 없습니다.")
 
 except Exception as e:
     st.error(f"⚠️ 데이터 처리 중 오류가 발생했습니다: {e}")
