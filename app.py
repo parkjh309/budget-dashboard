@@ -319,6 +319,7 @@ try:
                 df_plot['예산금액_라벨'] = df_plot['예산금액'].apply(convert_to_korean_amount)
                 df_plot['집행금액_라벨'] = df_plot['집행금액'].apply(convert_to_korean_amount)
 
+                # 막대 그래프
                 st.markdown("### 📈 예산 대비 집행 현황 (통합)")
                 fig = px.bar(
                     df_plot, x='팀명', y=['예산금액', '집행금액'], barmode='group',
@@ -472,7 +473,7 @@ try:
 
                 st.markdown("---")
                 
-                # ★★★ [신규: 예산 초과 집중 관리 항목 TOP 3 시각화] ★★★
+                # ★★★ [HTML 태그 오류 수정 완료: TOP 3 카드 시각화] ★★★
                 if '통합_항목명' in df_b_detail.columns and '통합_항목명' in df_a_detail.columns:
                     df_b_item_temp = df_b_detail.groupby('통합_항목명')[budget_col].sum().reset_index()
                     df_b_item_temp.rename(columns={'통합_항목명': '대분류 항목명', budget_col: '예산금액'}, inplace=True)
@@ -482,7 +483,6 @@ try:
                     
                     df_merged_temp = pd.merge(df_b_item_temp, df_a_item_temp, on='대분류 항목명', how='outer').fillna(0)
                     
-                    # 초과 금액 계산 (집행금액이 예산보다 클 경우에만 양수, 아니면 0)
                     df_merged_temp['초과금액'] = df_merged_temp.apply(lambda x: x['집행금액'] - x['예산금액'] if x['집행금액'] > x['예산금액'] else 0, axis=1)
                     df_merged_temp['집행률(%)'] = df_merged_temp.apply(
                         lambda x: (x['집행금액'] / x['예산금액'] * 100) if x['예산금액'] > 0 else (100 if x['집행금액'] > 0 else 0), axis=1
@@ -494,6 +494,7 @@ try:
                         st.markdown("#### 🚨 예산 초과 집중 관리 항목 TOP 3")
                         top3_html = "<div style='display: flex; gap: 15px; flex-wrap: wrap; margin-bottom: 20px;'>"
                         for i, (idx, row) in enumerate(df_overrun.head(3).iterrows()):
+                            # 파이썬 f-string 따옴표 이스케이프 완벽 처리
                             top3_html += f"""
                             <div style='flex: 1; min-width: 200px; background-color: #fff1f2; border: 1px solid #fecdd3; border-radius: 8px; padding: 15px; border-left: 5px solid #e11d48;'>
                                 <div style='font-size: 14px; color: #475569; margin-bottom: 5px;'>Top {i+1}. <b>{row['대분류 항목명']}</b></div>
@@ -507,7 +508,8 @@ try:
                         st.info("💡 모든 항목이 예산 범위 내에서 안정적으로 집행되고 있습니다.")
 
                 st.markdown(f"### 🎯 대분류(항목구분명) 예산 대비 집행률 분석 ({analysis_type})")
-                
+                st.write("하위 비목들이 자동으로 상위 항목구분명으로 병합되었습니다. 직관적으로 집행 현황을 확인하세요.")
+
                 if '통합_항목명' in df_b_detail.columns and '통합_항목명' in df_a_detail.columns:
                     df_b_item = df_b_detail.groupby('통합_항목명')[budget_col].sum().reset_index()
                     df_b_item.rename(columns={'통합_항목명': '대분류 항목명', budget_col: '예산금액'}, inplace=True)
@@ -517,7 +519,6 @@ try:
                     
                     df_item_merged = pd.merge(df_b_item, df_a_item, on='대분류 항목명', how='outer').fillna(0)
                     
-                    # 잔여예산과 초과금액 분리 계산
                     df_item_merged['잔여예산'] = df_item_merged.apply(lambda x: x['예산금액'] - x['집행금액'] if x['예산금액'] > x['집행금액'] else 0, axis=1)
                     df_item_merged['초과금액'] = df_item_merged.apply(lambda x: x['집행금액'] - x['예산금액'] if x['집행금액'] > x['예산금액'] else 0, axis=1)
                     
@@ -532,7 +533,6 @@ try:
                         lambda x: '🚨 위험 (90% 이상)' if x >= 90 else ('⚠️ 주의 (70% 이상)' if x >= 70 else '✅ 안전')
                     )
                     
-                    # 컬럼 순서 지정 (초과금액 열 추가)
                     display_order = ['대분류 항목명', '예산금액', '집행금액', '초과금액', '잔여예산', '집행률(%)', '현재 상태']
                     
                     st.dataframe(
