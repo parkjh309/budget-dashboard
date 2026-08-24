@@ -32,7 +32,7 @@ if 'chosen_team' not in st.session_state:
     st.session_state.chosen_team = '전체보기'
 
 try:
-    # --- [CI 구역 및 사이드바 상단 스위치] ---
+    # --- [CI 구역] ---
     logo_path = '「반출」logo.png'  
     
     with st.sidebar:
@@ -44,7 +44,7 @@ try:
         st.markdown("<h1 style='text-align: center; font-size: 32px; margin-top: 5px; font-weight: bold;'>동아ST</h1>", unsafe_allow_html=True)
         st.markdown("---")
 
-        # ★★★ [신규 핵심 기능: 연말 추정치 토글 스위치] ★★★
+        # [연말 추정치 토글 스위치]
         st.markdown("### 🔮 2027년 예산 수립용")
         is_forecast_mode = st.toggle("2026년 연말 추정치(예상) 모드", value=False)
         if is_forecast_mode:
@@ -59,15 +59,11 @@ try:
         'SM_SDO': '생산지원팀', 'SM_SVO': '밸리데이션팀', 'SM_QSF': '품질관리6팀', 'SM_SQA': '품질보증3팀'
     }
 
-    # 1. 파일 자동 탐색 로직 (모드에 따라 읽는 파일이 달라집니다)
+    # 1. 파일 자동 탐색 로직
     budget_file = next((f for f in all_files if "예산" in f and (f.endswith('.xlsx') or f.endswith('.csv'))), None)
-    
-    # 평균/예상 파일 찾기
     forecast_file = next((f for f in all_files if any(k in f for k in ["평균", "예상", "추정"]) and (f.endswith('.xlsx') or f.endswith('.csv'))), None)
-    # 일반 팩트 집행 파일 찾기
     actual_file = next((f for f in all_files if ("경비집행" in f or "집행" in f) and f != forecast_file and (f.endswith('.xlsx') or f.endswith('.csv'))), None)
 
-    # 스위치 ON/OFF에 따라 타겟 집행 파일을 결정합니다.
     target_actual_file = forecast_file if is_forecast_mode else actual_file
 
     if budget_file and target_actual_file:
@@ -95,7 +91,7 @@ try:
 
         df_budget = pd.concat(df_budget_list, ignore_index=True) if df_budget_list else pd.DataFrame()
 
-        # 3. 집행(또는 예상) 데이터 로드
+        # 3. 집행 데이터 로드
         if target_actual_file.endswith('.xlsx'):
             df_actual = pd.read_excel(target_actual_file)
         else:
@@ -262,7 +258,6 @@ try:
             # 🏁 [1번 화면: 메인 대시보드 페이지]
             # ==========================================
             if st.session_state.page == 'main':
-                # 스위치 상태에 따라 메인 타이틀 변경
                 main_title_text = "📊 송도캠퍼스 팀별 경비예산 분석 (2026년 연말 추정치 🔮)" if is_forecast_mode else "📊 송도캠퍼스 팀별 경비예산 분석"
                 st.title(main_title_text)
                 st.markdown("---")
@@ -291,11 +286,9 @@ try:
                 total_actual = df_display['집행금액'].sum()
                 avg_rate = (total_actual / total_budget * 100) if total_budget > 0 else 0
 
-                # 스위치 상태에 따라 카드 텍스트 변경
                 rate_title = "📊 연말 예상 집행률" if is_forecast_mode else "📊 평균 집행률"
                 actual_title = "💸 연말 예상 집행 금액" if is_forecast_mode else "💸 누적 집행 금액"
 
-                # 괄호 안의 (조정됨), (강조) 텍스트 완전히 삭제
                 summary_card_html = f"""
                 <div style='background-color: #f8fafc; padding: 22px; border-radius: 12px; border-left: 6px solid #ff7f0e; margin-top: 15px; margin-bottom: 25px; box-shadow: 1px 1px 4px rgba(0,0,0,0.05);'>
                     <div style='display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 15px;'>
@@ -326,7 +319,6 @@ try:
                 df_plot['예산금액_라벨'] = df_plot['예산금액'].apply(convert_to_korean_amount)
                 df_plot['집행금액_라벨'] = df_plot['집행금액'].apply(convert_to_korean_amount)
 
-                # 막대 그래프
                 st.markdown("### 📈 예산 대비 집행 현황 (통합)")
                 fig = px.bar(
                     df_plot, x='팀명', y=['예산금액', '집행금액'], barmode='group',
@@ -479,9 +471,43 @@ try:
                 df_a_detail = df_actual[df_actual['최종팀명'] == st.session_state.chosen_team].copy()
 
                 st.markdown("---")
-                st.markdown(f"### 🎯 대분류(항목구분명) 예산 대비 집행률 분석 ({analysis_type})")
-                st.write("하위 비목들이 자동으로 상위 항목구분명으로 병합되었습니다. 직관적으로 집행 현황을 확인하세요.")
+                
+                # ★★★ [신규: 예산 초과 집중 관리 항목 TOP 3 시각화] ★★★
+                if '통합_항목명' in df_b_detail.columns and '통합_항목명' in df_a_detail.columns:
+                    df_b_item_temp = df_b_detail.groupby('통합_항목명')[budget_col].sum().reset_index()
+                    df_b_item_temp.rename(columns={'통합_항목명': '대분류 항목명', budget_col: '예산금액'}, inplace=True)
+                    
+                    df_a_item_temp = df_a_detail.groupby('통합_항목명')[actual_col].sum().reset_index()
+                    df_a_item_temp.rename(columns={'통합_항목명': '대분류 항목명', actual_col: '집행금액'}, inplace=True)
+                    
+                    df_merged_temp = pd.merge(df_b_item_temp, df_a_item_temp, on='대분류 항목명', how='outer').fillna(0)
+                    
+                    # 초과 금액 계산 (집행금액이 예산보다 클 경우에만 양수, 아니면 0)
+                    df_merged_temp['초과금액'] = df_merged_temp.apply(lambda x: x['집행금액'] - x['예산금액'] if x['집행금액'] > x['예산금액'] else 0, axis=1)
+                    df_merged_temp['집행률(%)'] = df_merged_temp.apply(
+                        lambda x: (x['집행금액'] / x['예산금액'] * 100) if x['예산금액'] > 0 else (100 if x['집행금액'] > 0 else 0), axis=1
+                    )
+                    
+                    df_overrun = df_merged_temp[df_merged_temp['초과금액'] > 0].sort_values(by='초과금액', ascending=False)
+                    
+                    if not df_overrun.empty:
+                        st.markdown("#### 🚨 예산 초과 집중 관리 항목 TOP 3")
+                        top3_html = "<div style='display: flex; gap: 15px; flex-wrap: wrap; margin-bottom: 20px;'>"
+                        for i, (idx, row) in enumerate(df_overrun.head(3).iterrows()):
+                            top3_html += f"""
+                            <div style='flex: 1; min-width: 200px; background-color: #fff1f2; border: 1px solid #fecdd3; border-radius: 8px; padding: 15px; border-left: 5px solid #e11d48;'>
+                                <div style='font-size: 14px; color: #475569; margin-bottom: 5px;'>Top {i+1}. <b>{row['대분류 항목명']}</b></div>
+                                <div style='font-size: 20px; font-weight: bold; color: #e11d48;'>초과 ₩{row['초과금액']:,.0f}</div>
+                                <div style='font-size: 13px; color: #64748b; margin-top: 5px;'>예산: {row['예산금액']:,.0f} | 집행: {row['집행금액']:,.0f} ({row['집행률(%)']:.1f}%)</div>
+                            </div>
+                            """
+                        top3_html += "</div>"
+                        st.markdown(top3_html, unsafe_allow_html=True)
+                    else:
+                        st.info("💡 모든 항목이 예산 범위 내에서 안정적으로 집행되고 있습니다.")
 
+                st.markdown(f"### 🎯 대분류(항목구분명) 예산 대비 집행률 분석 ({analysis_type})")
+                
                 if '통합_항목명' in df_b_detail.columns and '통합_항목명' in df_a_detail.columns:
                     df_b_item = df_b_detail.groupby('통합_항목명')[budget_col].sum().reset_index()
                     df_b_item.rename(columns={'통합_항목명': '대분류 항목명', budget_col: '예산금액'}, inplace=True)
@@ -491,7 +517,10 @@ try:
                     
                     df_item_merged = pd.merge(df_b_item, df_a_item, on='대분류 항목명', how='outer').fillna(0)
                     
-                    df_item_merged['잔여예산'] = df_item_merged['예산금액'] - df_item_merged['집행금액']
+                    # 잔여예산과 초과금액 분리 계산
+                    df_item_merged['잔여예산'] = df_item_merged.apply(lambda x: x['예산금액'] - x['집행금액'] if x['예산금액'] > x['집행금액'] else 0, axis=1)
+                    df_item_merged['초과금액'] = df_item_merged.apply(lambda x: x['집행금액'] - x['예산금액'] if x['집행금액'] > x['예산금액'] else 0, axis=1)
+                    
                     df_item_merged['집행률(%)'] = df_item_merged.apply(
                         lambda x: (x['집행금액'] / x['예산금액'] * 100) if x['예산금액'] > 0 else (100 if x['집행금액'] > 0 else 0), axis=1
                     )
@@ -503,10 +532,14 @@ try:
                         lambda x: '🚨 위험 (90% 이상)' if x >= 90 else ('⚠️ 주의 (70% 이상)' if x >= 70 else '✅ 안전')
                     )
                     
+                    # 컬럼 순서 지정 (초과금액 열 추가)
+                    display_order = ['대분류 항목명', '예산금액', '집행금액', '초과금액', '잔여예산', '집행률(%)', '현재 상태']
+                    
                     st.dataframe(
-                        df_item_merged.style.format({
+                        df_item_merged[display_order].style.format({
                             '예산금액': '{:,.0f} 원',
                             '집행금액': '{:,.0f} 원',
+                            '초과금액': '{:,.0f} 원',
                             '잔여예산': '{:,.0f} 원',
                             '집행률(%)': '{:.1f} %'
                         }),
