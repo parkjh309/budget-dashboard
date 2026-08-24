@@ -473,7 +473,7 @@ try:
 
                 st.markdown("---")
                 
-                # ★★★ [HTML 태그 오류 수정 완료: TOP 3 카드 시각화] ★★★
+                # ★★★ [수정 완료: st.columns()를 사용하여 카드 가로 정렬] ★★★
                 if '통합_항목명' in df_b_detail.columns and '통합_항목명' in df_a_detail.columns:
                     df_b_item_temp = df_b_detail.groupby('통합_항목명')[budget_col].sum().reset_index()
                     df_b_item_temp.rename(columns={'통합_항목명': '대분류 항목명', budget_col: '예산금액'}, inplace=True)
@@ -492,24 +492,25 @@ try:
                     
                     if not df_overrun.empty:
                         st.markdown("#### 🚨 예산 초과 집중 관리 항목 TOP 3")
-                        top3_html = "<div style='display: flex; gap: 15px; flex-wrap: wrap; margin-bottom: 20px;'>"
-                        for i, (idx, row) in enumerate(df_overrun.head(3).iterrows()):
-                            # 파이썬 f-string 따옴표 이스케이프 완벽 처리
-                            top3_html += f"""
-                            <div style='flex: 1; min-width: 200px; background-color: #fff1f2; border: 1px solid #fecdd3; border-radius: 8px; padding: 15px; border-left: 5px solid #e11d48;'>
-                                <div style='font-size: 14px; color: #475569; margin-bottom: 5px;'>Top {i+1}. <b>{row['대분류 항목명']}</b></div>
-                                <div style='font-size: 20px; font-weight: bold; color: #e11d48;'>초과 ₩{row['초과금액']:,.0f}</div>
-                                <div style='font-size: 13px; color: #64748b; margin-top: 5px;'>예산: {row['예산금액']:,.0f} | 집행: {row['집행금액']:,.0f} ({row['집행률(%)']:.1f}%)</div>
-                            </div>
-                            """
-                        top3_html += "</div>"
-                        st.markdown(top3_html, unsafe_allow_html=True)
+                        
+                        top_items = df_overrun.head(3)
+                        cols = st.columns(len(top_items)) # 1~3개의 컬럼 동적 생성
+                        
+                        for i, (idx, row) in enumerate(top_items.iterrows()):
+                            with cols[i]:
+                                card_html = f"""
+                                <div style='background-color: #fff1f2; border: 1px solid #fecdd3; border-radius: 8px; padding: 15px; border-left: 5px solid #e11d48;'>
+                                    <div style='font-size: 14px; color: #475569; margin-bottom: 5px;'>Top {i+1}. <b>{row['대분류 항목명']}</b></div>
+                                    <div style='font-size: 20px; font-weight: bold; color: #e11d48;'>초과 ₩{row['초과금액']:,.0f}</div>
+                                    <div style='font-size: 13px; color: #64748b; margin-top: 5px;'>예산: {row['예산금액']:,.0f} | 집행: {row['집행금액']:,.0f} ({row['집행률(%)']:.1f}%)</div>
+                                </div>
+                                """
+                                st.markdown(card_html, unsafe_allow_html=True)
                     else:
                         st.info("💡 모든 항목이 예산 범위 내에서 안정적으로 집행되고 있습니다.")
 
                 st.markdown(f"### 🎯 대분류(항목구분명) 예산 대비 집행률 분석 ({analysis_type})")
-                st.write("하위 비목들이 자동으로 상위 항목구분명으로 병합되었습니다. 직관적으로 집행 현황을 확인하세요.")
-
+                
                 if '통합_항목명' in df_b_detail.columns and '통합_항목명' in df_a_detail.columns:
                     df_b_item = df_b_detail.groupby('통합_항목명')[budget_col].sum().reset_index()
                     df_b_item.rename(columns={'통합_항목명': '대분류 항목명', budget_col: '예산금액'}, inplace=True)
