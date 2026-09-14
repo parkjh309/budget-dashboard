@@ -44,6 +44,15 @@ try:
         st.markdown("<h1 style='text-align: center; font-size: 32px; margin-top: 5px; font-weight: bold;'>동아ST</h1>", unsafe_allow_html=True)
         st.markdown("---")
 
+        # ★★★ [신규: 조직 그룹 조회 필터] ★★★
+        st.markdown("### 🏢 조회 조직 선택")
+        org_group = st.radio(
+            "분석할 조직 단위",
+            ["🌟 전체 조직 (품질팀 포함)", "🏭 오리지널 송도캠퍼스", "🔬 품질 조직 (QA/QC)"],
+            help="제조/지원 부서와 품질 부서를 분리해서 볼 수 있습니다."
+        )
+        st.markdown("---")
+
         # [연말 추정치 토글 스위치]
         st.markdown("### 🔮 2027년 예산 수립용")
         is_forecast_mode = st.toggle("2026년 연말 추정치(예상) 모드", value=False)
@@ -53,11 +62,19 @@ try:
 
     all_files = os.listdir('.')
     
-    # 7개 팀 매칭 정보
+    # 7개 팀 매칭 정보 (기본)
     cc_mapping = {
         'SM_SMF': '송도공장장', 'SM_SAO': '제조팀', 'SM_SHO': '설비관리팀',
         'SM_SDO': '생산지원팀', 'SM_SVO': '밸리데이션팀', 'SM_QSF': '품질관리6팀', 'SM_SQA': '품질보증3팀'
     }
+
+    # 사용자가 선택한 라디오 버튼에 따라 타겟 팀 리스트 생성
+    if org_group == "🏭 오리지널 송도캠퍼스":
+        target_teams = ['송도공장장', '제조팀', '설비관리팀', '생산지원팀', '밸리데이션팀']
+    elif org_group == "🔬 품질 조직 (QA/QC)":
+        target_teams = ['품질보증3팀', '품질관리6팀']
+    else:
+        target_teams = list(cc_mapping.values())
 
     # 1. 파일 자동 탐색 로직
     budget_file = next((f for f in all_files if "예산" in f and (f.endswith('.xlsx') or f.endswith('.csv'))), None)
@@ -201,14 +218,14 @@ try:
                 budget_col = '🎯분기예산'
                 actual_col = '🎯분기집행'
 
-            # 그룹화 및 병합
+            # 그룹화 및 병합 (선택된 target_teams만 데이터프레임 뼈대로 잡음)
             df_b_grouped = df_budget.groupby('최종팀명')[budget_col].sum().reset_index()
             df_a_grouped = df_actual.groupby('최종팀명')[actual_col].sum().reset_index()
 
             df_b_grouped.rename(columns={'최종팀명': '팀명', budget_col: '예산금액'}, inplace=True)
             df_a_grouped.rename(columns={'최종팀명': '팀명', actual_col: '집행금액'}, inplace=True)
 
-            df_final_teams = pd.DataFrame({'팀명': list(cc_mapping.values())})
+            df_final_teams = pd.DataFrame({'팀명': target_teams})
             df_merged = pd.merge(df_final_teams, df_b_grouped, on='팀명', how='left').fillna(0)
             df_merged = pd.merge(df_merged, df_a_grouped, on='팀명', how='left').fillna(0)
             df_merged['집행률(%)'] = df_merged.apply(lambda row: (row['집행금액'] / row['예산금액'] * 100) if row['예산금액'] > 0 else 0, axis=1).round(1)
@@ -262,7 +279,8 @@ try:
                 st.title(main_title_text)
                 st.markdown("---")
                 
-                selected_team = st.selectbox("📌 조회할 팀을 선택하세요", ["전체보기"] + list(cc_mapping.values()))
+                # 선택된 그룹에 속한 팀만 드롭다운에 표시
+                selected_team = st.selectbox("📌 조회할 팀을 선택하세요", ["전체보기"] + target_teams)
 
                 if selected_team != "전체보기":
                     page_col1, page_col2 = st.columns([5, 1])
@@ -278,8 +296,8 @@ try:
                     df_a_detail = df_actual[df_actual['최종팀명'] == selected_team].copy()
                 else:
                     df_display = df_merged.copy()
-                    df_b_detail = df_budget.copy()
-                    df_a_detail = df_actual.copy()
+                    df_b_detail = df_budget[df_budget['최종팀명'].isin(target_teams)].copy()
+                    df_a_detail = df_actual[df_actual['최종팀명'].isin(target_teams)].copy()
 
                 # 요약 지표 데이터 연산
                 total_budget = df_display['예산금액'].sum()
@@ -319,8 +337,7 @@ try:
                 df_plot['예산금액_라벨'] = df_plot['예산금액'].apply(convert_to_korean_amount)
                 df_plot['집행금액_라벨'] = df_plot['집행금액'].apply(convert_to_korean_amount)
 
-                # 막대 그래프
-                st.markdown("### 📈 예산 대비 집행 현황 (통합)")
+                st.markdown(f"### 📈 예산 대비 집행 현황 ({org_group.split(' ')[1]})")
                 fig = px.bar(
                     df_plot, x='팀명', y=['예산금액', '집행금액'], barmode='group',
                     color_discrete_sequence=['#cbd5e1', '#ff7f0e']
@@ -334,7 +351,7 @@ try:
                 st.plotly_chart(fig, use_container_width=True)
 
                 st.markdown("---")
-                title_text = "전체 팀" if selected_team == "전체보기" else selected_team
+                title_text = f"전체 팀 ({org_group.split(' ')[1]})" if selected_team == "전체보기" else selected_team
                 st.markdown(f"### 🔍 {title_text} - 대분류 기준(항목구분명) 상세 분석")
 
                 if analysis_type != '월별/통합 분석':
@@ -448,116 +465,123 @@ try:
             # ==========================================
             elif st.session_state.page == 'detail':
                 
-                col_btn1, col_btn2 = st.columns([1, 4])
-                with col_btn1:
+                # 방어 로직: 선택 그룹을 바꾸어 상세 팀이 그룹에 없는 경우 메인으로 복귀 유도
+                if st.session_state.chosen_team not in target_teams and st.session_state.chosen_team != '전체보기':
+                    st.warning(f"⚠️ 현재 사이드바에서 선택하신 그룹에 '{st.session_state.chosen_team}' 데이터가 없습니다. 메인으로 돌아갑니다.")
                     if st.button("⬅️ 메인 대시보드로 돌아가기"):
                         st.session_state.page = 'main'
+                        st.session_state.chosen_team = '전체보기'
                         st.rerun()
-                with col_btn2:
-                    components.html(
-                        """
-                        <button onclick="window.parent.print()" style="
-                            background-color: #2e7d32;
-                            color: white; border: none; padding: 8px 16px; border-radius: 5px;
-                            cursor: pointer; font-size: 14px; font-weight: bold;
-                            font-family: 'Malgun Gothic', 'Apple SD Gothic Neo', sans-serif;
-                            box-shadow: 1px 1px 3px rgba(0,0,0,0.2);
-                        ">🖨️ 현재 페이지 PDF로 저장/인쇄</button>
-                        """, height=50
-                    )
+                else:
+                    col_btn1, col_btn2 = st.columns([1, 4])
+                    with col_btn1:
+                        if st.button("⬅️ 메인 대시보드로 돌아가기"):
+                            st.session_state.page = 'main'
+                            st.rerun()
+                    with col_btn2:
+                        components.html(
+                            """
+                            <button onclick="window.parent.print()" style="
+                                background-color: #2e7d32;
+                                color: white; border: none; padding: 8px 16px; border-radius: 5px;
+                                cursor: pointer; font-size: 14px; font-weight: bold;
+                                font-family: 'Malgun Gothic', 'Apple SD Gothic Neo', sans-serif;
+                                box-shadow: 1px 1px 3px rgba(0,0,0,0.2);
+                            ">🖨️ 현재 페이지 PDF로 저장/인쇄</button>
+                            """, height=50
+                        )
 
-                st.title(f"📂 {st.session_state.chosen_team} - 상세 경비 집행 분석{' (연말 추정치 🔮)' if is_forecast_mode else ''}")
-                
-                df_b_detail = df_budget[df_budget['최종팀명'] == st.session_state.chosen_team].copy()
-                df_a_detail = df_actual[df_actual['최종팀명'] == st.session_state.chosen_team].copy()
+                    st.title(f"📂 {st.session_state.chosen_team} - 상세 경비 집행 분석{' (연말 추정치 🔮)' if is_forecast_mode else ''}")
+                    
+                    df_b_detail = df_budget[df_budget['최종팀명'] == st.session_state.chosen_team].copy()
+                    df_a_detail = df_actual[df_actual['최종팀명'] == st.session_state.chosen_team].copy()
 
-                st.markdown("---")
-                
-                # ★★★ [수정 완료: st.columns()를 사용하여 카드 가로 정렬] ★★★
-                if '통합_항목명' in df_b_detail.columns and '통합_항목명' in df_a_detail.columns:
-                    df_b_item_temp = df_b_detail.groupby('통합_항목명')[budget_col].sum().reset_index()
-                    df_b_item_temp.rename(columns={'통합_항목명': '대분류 항목명', budget_col: '예산금액'}, inplace=True)
+                    st.markdown("---")
                     
-                    df_a_item_temp = df_a_detail.groupby('통합_항목명')[actual_col].sum().reset_index()
-                    df_a_item_temp.rename(columns={'통합_항목명': '대분류 항목명', actual_col: '집행금액'}, inplace=True)
-                    
-                    df_merged_temp = pd.merge(df_b_item_temp, df_a_item_temp, on='대분류 항목명', how='outer').fillna(0)
-                    
-                    df_merged_temp['초과금액'] = df_merged_temp.apply(lambda x: x['집행금액'] - x['예산금액'] if x['집행금액'] > x['예산금액'] else 0, axis=1)
-                    df_merged_temp['집행률(%)'] = df_merged_temp.apply(
-                        lambda x: (x['집행금액'] / x['예산금액'] * 100) if x['예산금액'] > 0 else (100 if x['집행금액'] > 0 else 0), axis=1
-                    )
-                    
-                    df_overrun = df_merged_temp[df_merged_temp['초과금액'] > 0].sort_values(by='초과금액', ascending=False)
-                    
-                    if not df_overrun.empty:
-                        st.markdown("#### 🚨 예산 초과 집중 관리 항목 TOP 3")
+                    if '통합_항목명' in df_b_detail.columns and '통합_항목명' in df_a_detail.columns:
+                        df_b_item_temp = df_b_detail.groupby('통합_항목명')[budget_col].sum().reset_index()
+                        df_b_item_temp.rename(columns={'통합_항목명': '대분류 항목명', budget_col: '예산금액'}, inplace=True)
                         
-                        top_items = df_overrun.head(3)
-                        cols = st.columns(len(top_items)) # 1~3개의 컬럼 동적 생성
+                        df_a_item_temp = df_a_detail.groupby('통합_항목명')[actual_col].sum().reset_index()
+                        df_a_item_temp.rename(columns={'통합_항목명': '대분류 항목명', actual_col: '집행금액'}, inplace=True)
                         
-                        for i, (idx, row) in enumerate(top_items.iterrows()):
-                            with cols[i]:
-                                card_html = f"""
-                                <div style='background-color: #fff1f2; border: 1px solid #fecdd3; border-radius: 8px; padding: 15px; border-left: 5px solid #e11d48;'>
-                                    <div style='font-size: 14px; color: #475569; margin-bottom: 5px;'>Top {i+1}. <b>{row['대분류 항목명']}</b></div>
-                                    <div style='font-size: 20px; font-weight: bold; color: #e11d48;'>초과 ₩{row['초과금액']:,.0f}</div>
-                                    <div style='font-size: 13px; color: #64748b; margin-top: 5px;'>예산: {row['예산금액']:,.0f} | 집행: {row['집행금액']:,.0f} ({row['집행률(%)']:.1f}%)</div>
-                                </div>
-                                """
-                                st.markdown(card_html, unsafe_allow_html=True)
-                    else:
-                        st.info("💡 모든 항목이 예산 범위 내에서 안정적으로 집행되고 있습니다.")
+                        df_merged_temp = pd.merge(df_b_item_temp, df_a_item_temp, on='대분류 항목명', how='outer').fillna(0)
+                        
+                        df_merged_temp['초과금액'] = df_merged_temp.apply(lambda x: x['집행금액'] - x['예산금액'] if x['집행금액'] > x['예산금액'] else 0, axis=1)
+                        df_merged_temp['집행률(%)'] = df_merged_temp.apply(
+                            lambda x: (x['집행금액'] / x['예산금액'] * 100) if x['예산금액'] > 0 else (100 if x['집행금액'] > 0 else 0), axis=1
+                        )
+                        
+                        df_overrun = df_merged_temp[df_merged_temp['초과금액'] > 0].sort_values(by='초과금액', ascending=False)
+                        
+                        if not df_overrun.empty:
+                            st.markdown("#### 🚨 예산 초과 집중 관리 항목 TOP 3")
+                            
+                            top_items = df_overrun.head(3)
+                            cols = st.columns(len(top_items)) 
+                            
+                            for i, (idx, row) in enumerate(top_items.iterrows()):
+                                with cols[i]:
+                                    card_html = f"""
+                                    <div style='background-color: #fff1f2; border: 1px solid #fecdd3; border-radius: 8px; padding: 15px; border-left: 5px solid #e11d48;'>
+                                        <div style='font-size: 14px; color: #475569; margin-bottom: 5px;'>Top {i+1}. <b>{row['대분류 항목명']}</b></div>
+                                        <div style='font-size: 20px; font-weight: bold; color: #e11d48;'>초과 ₩{row['초과금액']:,.0f}</div>
+                                        <div style='font-size: 13px; color: #64748b; margin-top: 5px;'>예산: {row['예산금액']:,.0f} | 집행: {row['집행금액']:,.0f} ({row['집행률(%)']:.1f}%)</div>
+                                    </div>
+                                    """
+                                    st.markdown(card_html, unsafe_allow_html=True)
+                        else:
+                            st.info("💡 모든 항목이 예산 범위 내에서 안정적으로 집행되고 있습니다.")
 
-                st.markdown(f"### 🎯 대분류(항목구분명) 예산 대비 집행률 분석 ({analysis_type})")
-                
-                if '통합_항목명' in df_b_detail.columns and '통합_항목명' in df_a_detail.columns:
-                    df_b_item = df_b_detail.groupby('통합_항목명')[budget_col].sum().reset_index()
-                    df_b_item.rename(columns={'통합_항목명': '대분류 항목명', budget_col: '예산금액'}, inplace=True)
+                    st.markdown(f"### 🎯 대분류(항목구분명) 예산 대비 집행률 분석 ({analysis_type})")
                     
-                    df_a_item = df_a_detail.groupby('통합_항목명')[actual_col].sum().reset_index()
-                    df_a_item.rename(columns={'통합_항목명': '대분류 항목명', actual_col: '집행금액'}, inplace=True)
-                    
-                    df_item_merged = pd.merge(df_b_item, df_a_item, on='대분류 항목명', how='outer').fillna(0)
-                    
-                    df_item_merged['잔여예산'] = df_item_merged.apply(lambda x: x['예산금액'] - x['집행금액'] if x['예산금액'] > x['집행금액'] else 0, axis=1)
-                    df_item_merged['초과금액'] = df_item_merged.apply(lambda x: x['집행금액'] - x['예산금액'] if x['집행금액'] > x['예산금액'] else 0, axis=1)
-                    
-                    df_item_merged['집행률(%)'] = df_item_merged.apply(
-                        lambda x: (x['집행금액'] / x['예산금액'] * 100) if x['예산금액'] > 0 else (100 if x['집행금액'] > 0 else 0), axis=1
-                    )
-                    
-                    df_item_merged = df_item_merged[(df_item_merged['예산금액'] > 0) | (df_item_merged['집행금액'] > 0)]
-                    df_item_merged = df_item_merged.sort_values(by='집행률(%)', ascending=False)
-                    
-                    df_item_merged['현재 상태'] = df_item_merged['집행률(%)'].apply(
-                        lambda x: '🚨 위험 (90% 이상)' if x >= 90 else ('⚠️ 주의 (70% 이상)' if x >= 70 else '✅ 안전')
-                    )
-                    
-                    display_order = ['대분류 항목명', '예산금액', '집행금액', '초과금액', '잔여예산', '집행률(%)', '현재 상태']
-                    
-                    st.dataframe(
-                        df_item_merged[display_order].style.format({
-                            '예산금액': '{:,.0f} 원',
-                            '집행금액': '{:,.0f} 원',
-                            '초과금액': '{:,.0f} 원',
-                            '잔여예산': '{:,.0f} 원',
-                            '집행률(%)': '{:.1f} %'
-                        }),
-                        use_container_width=True
-                    )
+                    if '통합_항목명' in df_b_detail.columns and '통합_항목명' in df_a_detail.columns:
+                        df_b_item = df_b_detail.groupby('통합_항목명')[budget_col].sum().reset_index()
+                        df_b_item.rename(columns={'통합_항목명': '대분류 항목명', budget_col: '예산금액'}, inplace=True)
+                        
+                        df_a_item = df_a_detail.groupby('통합_항목명')[actual_col].sum().reset_index()
+                        df_a_item.rename(columns={'통합_항목명': '대분류 항목명', actual_col: '집행금액'}, inplace=True)
+                        
+                        df_item_merged = pd.merge(df_b_item, df_a_item, on='대분류 항목명', how='outer').fillna(0)
+                        
+                        df_item_merged['잔여예산'] = df_item_merged.apply(lambda x: x['예산금액'] - x['집행금액'] if x['예산금액'] > x['집행금액'] else 0, axis=1)
+                        df_item_merged['초과금액'] = df_item_merged.apply(lambda x: x['집행금액'] - x['예산금액'] if x['집행금액'] > x['예산금액'] else 0, axis=1)
+                        
+                        df_item_merged['집행률(%)'] = df_item_merged.apply(
+                            lambda x: (x['집행금액'] / x['예산금액'] * 100) if x['예산금액'] > 0 else (100 if x['집행금액'] > 0 else 0), axis=1
+                        )
+                        
+                        df_item_merged = df_item_merged[(df_item_merged['예산금액'] > 0) | (df_item_merged['집행금액'] > 0)]
+                        df_item_merged = df_item_merged.sort_values(by='집행률(%)', ascending=False)
+                        
+                        df_item_merged['현재 상태'] = df_item_merged['집행률(%)'].apply(
+                            lambda x: '🚨 위험 (90% 이상)' if x >= 90 else ('⚠️ 주의 (70% 이상)' if x >= 70 else '✅ 안전')
+                        )
+                        
+                        display_order = ['대분류 항목명', '예산금액', '집행금액', '초과금액', '잔여예산', '집행률(%)', '현재 상태']
+                        
+                        st.dataframe(
+                            df_item_merged[display_order].style.format({
+                                '예산금액': '{:,.0f} 원',
+                                '집행금액': '{:,.0f} 원',
+                                '초과금액': '{:,.0f} 원',
+                                '잔여예산': '{:,.0f} 원',
+                                '집행률(%)': '{:.1f} %'
+                            }),
+                            use_container_width=True
+                        )
 
-                st.markdown("---")
-                st.markdown(f"### 📊 월별 대분류(항목구분명) 집행 요약 그리드")
-                st.write("월별 지출 내역 또한 자잘한 비목을 하나로 합쳐 대분류 기준으로 깔끔하게 정리했습니다.")
+                    st.markdown("---")
+                    st.markdown(f"### 📊 월별 대분류(항목구분명) 집행 요약 그리드")
+                    st.write("월별 지출 내역 또한 자잘한 비목을 하나로 합쳐 대분류 기준으로 깔끔하게 정리했습니다.")
 
-                cols_to_sum = ['합계'] + [c for c in df_a_detail.columns if '월' in c]
-                if '통합_항목명' in df_a_detail.columns:
-                    df_a_grid = df_a_detail.groupby('통합_항목명')[cols_to_sum].sum().reset_index()
-                    df_a_grid.rename(columns={'통합_항목명': '대분류 항목명'}, inplace=True)
-                    
-                    format_dict = {col: '{:,.0f} 원' for col in cols_to_sum if col in df_a_grid.columns}
-                    st.dataframe(df_a_grid.style.format(format_dict), use_container_width=True)
+                    cols_to_sum = ['합계'] + [c for c in df_a_detail.columns if '월' in c]
+                    if '통합_항목명' in df_a_detail.columns:
+                        df_a_grid = df_a_detail.groupby('통합_항목명')[cols_to_sum].sum().reset_index()
+                        df_a_grid.rename(columns={'통합_항목명': '대분류 항목명'}, inplace=True)
+                        
+                        format_dict = {col: '{:,.0f} 원' for col in cols_to_sum if col in df_a_grid.columns}
+                        st.dataframe(df_a_grid.style.format(format_dict), use_container_width=True)
 
         else:
             if not budget_file:
