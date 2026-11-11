@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import os
+import re
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
@@ -33,18 +34,18 @@ if 'chosen_team' not in st.session_state:
 
 try:
     # --- [CI 구역] ---
-    logo_path = '「반출」logo.png'  
-    
+    logo_path = '「반출」logo.png'
+
     with st.sidebar:
         if os.path.exists(logo_path):
             log_col1, log_col2, log_col3 = st.columns([1, 4, 1])
             with log_col2:
                 st.image(logo_path)
-        
+
         st.markdown("<h1 style='text-align: center; font-size: 32px; margin-top: 5px; font-weight: bold;'>동아ST</h1>", unsafe_allow_html=True)
         st.markdown("---")
 
-        # ★★★ [신규: 조직 그룹 조회 필터] ★★★
+        # ★★★ [조직 그룹 조회 필터] ★★★
         st.markdown("### 🏢 조회 조직 선택")
         org_group = st.radio(
             "분석할 조직 단위",
@@ -61,7 +62,7 @@ try:
         st.markdown("---")
 
     all_files = os.listdir('.')
-    
+
     # 7개 팀 매칭 정보 (기본)
     cc_mapping = {
         'SM_SMF': '송도공장장', 'SM_SAO': '제조팀', 'SM_SHO': '설비관리팀',
@@ -77,9 +78,15 @@ try:
         target_teams = list(cc_mapping.values())
 
     # 1. 파일 자동 탐색 로직
-    budget_file = next((f for f in all_files if "예산" in f and (f.endswith('.xlsx') or f.endswith('.csv'))), None)
-    forecast_file = next((f for f in all_files if any(k in f for k in ["평균", "예상", "추정"]) and (f.endswith('.xlsx') or f.endswith('.csv'))), None)
-    actual_file = next((f for f in all_files if ("경비집행" in f or "집행" in f) and f != forecast_file and (f.endswith('.xlsx') or f.endswith('.csv'))), None)
+    forecast_keywords = ["평균", "예상", "추정"]
+    budget_file = next((f for f in all_files if "예산" in f and f.endswith(('.xlsx', '.csv'))), None)
+    forecast_file = next((f for f in all_files if any(k in f for k in forecast_keywords) and f.endswith(('.xlsx', '.csv'))), None)
+    # ★ 실적 파일: 파일명에 '집행' 또는 '마감'이 들어간 파일 (예: 경비마감 (10월).xlsx)
+    actual_file = next((f for f in all_files
+                        if ("집행" in f or "마감" in f)
+                        and f != forecast_file
+                        and not any(k in f for k in forecast_keywords)
+                        and f.endswith(('.xlsx', '.csv'))), None)
 
     target_actual_file = forecast_file if is_forecast_mode else actual_file
 
@@ -117,7 +124,7 @@ try:
         if not df_actual.empty:
             if '항목코드' in df_actual.columns:
                 df_actual = df_actual[df_actual['항목코드'].notna()]
-            
+
             if 'CC코드' in df_actual.columns:
                 df_actual['최종팀명'] = df_actual['CC코드'].astype(str).str.strip().map(cc_mapping)
             elif 'CC명' in df_actual.columns:
@@ -134,6 +141,33 @@ try:
         if not df_budget.empty and not df_actual.empty:
             df_budget.columns = [str(c).strip() for c in df_budget.columns]
             df_actual.columns = [str(c).strip() for c in df_actual.columns]
+
+            # ★ [데이터 기준월 자동 감지] 금액이 들어 있는 마지막 월을 찾음
+            data_month = None
+            for m in range(12, 0, -1):
+                col = f"{m:02d}월"
+                if col in df_actual.columns:
+                    s = pd.to_numeric(df_actual[col].astype(str).str.replace(',', ''), errors='coerce').fillna(0).sum()
+                    if s != 0:
+                        data_month = m
+                        break
+            if data_month is None:
+                fm = re.search(r'(\d{1,2})월', target_actual_file)
+                data_month = int(fm.group(1)) if fm else None
+
+            if is_forecast_mode:
+                basis_text = "🔮 2026년 연말 추정치 기준 (1~12월 예상)"
+            elif data_month:
+                basis_text = f"📅 2026년 {data_month}월 마감 기준 (1~{data_month}월 누적)"
+            else:
+                basis_text = "📅 기준월 확인 불가"
+
+            basis_badge = f"""
+            <div style='display:inline-block; background:#fff7ed; color:#c2410c; border:1px solid #fed7aa;
+                        padding:6px 14px; border-radius:20px; font-size:15px; font-weight:bold; margin-bottom:5px;'>
+                {basis_text}
+            </div>
+            """
 
             # [대분류 명칭 정제 및 통일]
             if '계정' in df_budget.columns:
@@ -159,21 +193,22 @@ try:
 
             # 4. 사이드바 - 분석 주기 선택
             st.sidebar.markdown("### ⚙️ 데이터 매칭 및 예실분석")
+            st.sidebar.caption(basis_text)
             analysis_type = st.sidebar.selectbox(
-                "📅 분석 주기 선택", 
+                "📅 분석 주기 선택",
                 ['월별/통합 분석', '1분기 (1~3월)', '2분기 (4~6월)', '3분기 (7~9월)', '4분기 (10~12월)']
             )
-            
+
             display_names = ['TOTAL', '01월', '02월', '03월', '04월', '05월', '06월', '07월', '08월', '09월', '10월', '11월', '12월']
             budget_real_cols = {
-                'TOTAL': '2026', '01월': '2026.01', '02월': '2026.02', '03월': '2026.03', 
+                'TOTAL': '2026', '01월': '2026.01', '02월': '2026.02', '03월': '2026.03',
                 '04월': '2026.04', '05월': '2026.05', '06월': '2026.06', '07월': '2026.07',
                 '08월': '2026.08', '09월': '2026.09', '10월': '2026.1', '11월': '2026.11', '12월': '2026.12'
             }
             for col in df_budget.columns:
                 if col in ['2026.10', "2026.'10"]:
                     budget_real_cols['10월'] = col
-            
+
             actual_real_cols = {'TOTAL': '합계'}
             for i in range(1, 13):
                 actual_real_cols[f"{i:02d}월"] = f"{i:02d}월"
@@ -181,7 +216,7 @@ try:
             if analysis_type == '월별/통합 분석':
                 b_keys = [k for k in display_names if budget_real_cols.get(k) in df_budget.columns]
                 a_keys = [k for k in display_names if actual_real_cols.get(k) in df_actual.columns]
-                
+
                 if not b_keys: b_keys = df_budget.columns.tolist()
                 if not a_keys: a_keys = df_actual.columns.tolist()
 
@@ -193,7 +228,7 @@ try:
 
                 df_budget[budget_col] = pd.to_numeric(df_budget[budget_col].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
                 df_actual[actual_col] = pd.to_numeric(df_actual[actual_col].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
-            
+
             else:
                 if '1분기' in analysis_type: months = [1, 2, 3]
                 elif '2분기' in analysis_type: months = [4, 5, 6]
@@ -202,8 +237,11 @@ try:
 
                 b_cols_to_sum = []
                 for m in months:
-                    possible_cols = [f"2026.{m:02d}", f"2026.{m}"]
-                    if m == 10: possible_cols.extend(['2026.1', "2026.'10"])
+                    # ★ 1월이 10월 열('2026.1')로 잘못 잡히지 않도록 10월만 별도 처리
+                    if m == 10:
+                        possible_cols = ['2026.10', '2026.1', "2026.'10"]
+                    else:
+                        possible_cols = [f"2026.{m:02d}"]
                     found_col = next((c for c in possible_cols if c in df_budget.columns), None)
                     if found_col: b_cols_to_sum.append(found_col)
 
@@ -246,13 +284,13 @@ try:
                             sender_email = st.secrets["sender_email"]
                             sender_pw = st.secrets["sender_pw"]
                             over_budget_teams = df_merged[df_merged['집행률(%)'] >= alert_threshold]['팀명'].tolist()
-                            
+
                             if over_budget_teams:
                                 msg = MIMEMultipart()
                                 msg['From'] = sender_email
                                 msg['To'] = receiver_email
                                 msg['Subject'] = f"⚠️ [예산 경고] {len(over_budget_teams)}개 팀 집행률 {alert_threshold}% 초과"
-                                body = f"다음 팀들의 예산 집행률이 {alert_threshold}%를 초과했습니다.\n\n"
+                                body = f"[{basis_text}]\n\n다음 팀들의 예산 집행률이 {alert_threshold}%를 초과했습니다.\n\n"
                                 for team in over_budget_teams:
                                     rate = df_merged[df_merged['팀명'] == team]['집행률(%)'].values[0]
                                     body += f"- {team}: {rate}%\n"
@@ -277,8 +315,9 @@ try:
             if st.session_state.page == 'main':
                 main_title_text = "📊 송도캠퍼스 팀별 경비예산 분석 (2026년 연말 추정치 🔮)" if is_forecast_mode else "📊 송도캠퍼스 팀별 경비예산 분석"
                 st.title(main_title_text)
+                st.markdown(basis_badge, unsafe_allow_html=True)
                 st.markdown("---")
-                
+
                 # 선택된 그룹에 속한 팀만 드롭다운에 표시
                 selected_team = st.selectbox("📌 조회할 팀을 선택하세요", ["전체보기"] + target_teams)
 
@@ -361,25 +400,25 @@ try:
                         if '2분기' in analysis_type: prev_months = [1, 2, 3]
                         elif '3분기' in analysis_type: prev_months = [4, 5, 6]
                         else: prev_months = [7, 8, 9]
-                        
+
                         prev_a_cols = [f"{m:02d}월" for m in prev_months if f"{m:02d}월" in df_a_detail.columns]
-                        
+
                         if prev_a_cols and '통합_항목명' in df_a_detail.columns:
                             prev_total = df_a_detail[prev_a_cols].sum().sum()
                             curr_total = df_a_detail[actual_col].sum()
                             diff_total = curr_total - prev_total
-                            
+
                             df_prev_cat = df_a_detail.groupby('통합_항목명')[prev_a_cols].sum().sum(axis=1).reset_index(name='prev_amt')
                             df_curr_cat = df_a_detail.groupby('통합_항목명')[actual_col].sum().reset_index(name='curr_amt')
-                            
+
                             df_trend = pd.merge(df_curr_cat, df_prev_cat, on='통합_항목명', how='outer').fillna(0)
                             df_trend['diff'] = df_trend['curr_amt'] - df_trend['prev_amt']
-                            
+
                             diff_str = f"{abs(diff_total):,.0f}원 " + ("<span style='color:red;'>증가 🔺</span>" if diff_total > 0 else "<span style='color:blue;'>감소 🔽</span>")
-                            
+
                             max_inc_cat = df_trend.sort_values(by='diff', ascending=False).iloc[0] if not df_trend.empty and df_trend['diff'].max() > 0 else None
                             max_dec_cat = df_trend.sort_values(by='diff', ascending=True).iloc[0] if not df_trend.empty and df_trend['diff'].min() < 0 else None
-                            
+
                             report_html = f"""
                             <div style='background-color: #f8f9fa; padding: 20px; border-radius: 10px; border-left: 6px solid #4a4a4a; margin-bottom: 20px; box-shadow: 2px 2px 5px rgba(0,0,0,0.05);'>
                                 <h4 style='margin-top:0px; margin-bottom:15px; color:#343a40;'>📝 {analysis_type[:3]} 집행 요약 리포트</h4>
@@ -390,12 +429,12 @@ try:
                                 report_html += f"<li>비용이 가장 많이 증가한 항목은 <b>{max_inc_cat['통합_항목명']}</b> (+{max_inc_cat['diff']:,.0f}원) 입니다.</li>"
                             if max_dec_cat is not None:
                                 report_html += f"<li>비용이 가장 많이 절감된 항목은 <b>{max_dec_cat['통합_항목명']}</b> ({max_dec_cat['diff']:,.0f}원) 입니다.</li>"
-                                
+
                             report_html += "</ul></div>"
                             st.markdown(report_html, unsafe_allow_html=True)
-                
+
                 col_b, col_a = st.columns(2)
-                
+
                 with col_b:
                     st.markdown("#### 💰 수립 예산 구성비율")
                     if '통합_항목명' in df_b_detail.columns:
@@ -403,8 +442,8 @@ try:
                         if not df_b_cat.empty:
                             df_b_grouped_cat = df_b_cat.groupby('통합_항목명')[budget_col].sum().reset_index()
                             df_b_grouped_cat = df_b_grouped_cat.sort_values(by=budget_col, ascending=False).head(10)
-                            
-                            fig_b = px.pie(df_b_grouped_cat, values=budget_col, names='통합_항목명', hole=0.4, 
+
+                            fig_b = px.pie(df_b_grouped_cat, values=budget_col, names='통합_항목명', hole=0.4,
                                            color_discrete_sequence=px.colors.sequential.Blues_r)
                             fig_b.update_traces(textposition='inside', textinfo='percent+label')
                             st.plotly_chart(fig_b, use_container_width=True)
@@ -412,7 +451,7 @@ try:
                             top3_b = df_b_grouped_cat.head(3)
                             total_b_amt = df_b_cat[budget_col].sum()
                             medals = ['🥇', '🥈', '🥉']
-                            
+
                             html_b = "<div style='background-color: #f0f8ff; padding: 15px; border-radius: 10px; border-left: 5px solid #1f77b4; margin-top: -20px;'>"
                             html_b += "<h4 style='margin-top:0px; margin-bottom:15px; color:#1f77b4;'>🏆 예산 비중 TOP 3</h4>"
                             for i, (idx, row) in enumerate(top3_b.iterrows()):
@@ -434,7 +473,7 @@ try:
                         if not df_a_cat.empty:
                             df_a_grouped_cat = df_a_cat.groupby('통합_항목명')[actual_col].sum().reset_index()
                             df_a_grouped_cat = df_a_grouped_cat.sort_values(by=actual_col, ascending=False).head(10)
-                            
+
                             fig_a = px.pie(df_a_grouped_cat, values=actual_col, names='통합_항목명', hole=0.4,
                                            color_discrete_sequence=px.colors.sequential.Oranges_r)
                             fig_a.update_traces(textposition='inside', textinfo='percent+label')
@@ -443,7 +482,7 @@ try:
                             top3_a = df_a_grouped_cat.head(3)
                             total_a_amt = df_a_cat[actual_col].sum()
                             medals = ['🥇', '🥈', '🥉']
-                            
+
                             html_a = "<div style='background-color: #fffaf0; padding: 15px; border-radius: 10px; border-left: 5px solid #ff7f0e; margin-top: -20px;'>"
                             html_a += "<h4 style='margin-top:0px; margin-bottom:15px; color:#ff7f0e;'>🏆 집행 비중 TOP 3</h4>"
                             for i, (idx, row) in enumerate(top3_a.iterrows()):
@@ -464,7 +503,7 @@ try:
             # 📂 [2번 화면: 상세 예산 분석 페이지]
             # ==========================================
             elif st.session_state.page == 'detail':
-                
+
                 # 방어 로직: 선택 그룹을 바꾸어 상세 팀이 그룹에 없는 경우 메인으로 복귀 유도
                 if st.session_state.chosen_team not in target_teams and st.session_state.chosen_team != '전체보기':
                     st.warning(f"⚠️ 현재 사이드바에서 선택하신 그룹에 '{st.session_state.chosen_team}' 데이터가 없습니다. 메인으로 돌아갑니다.")
@@ -492,34 +531,35 @@ try:
                         )
 
                     st.title(f"📂 {st.session_state.chosen_team} - 상세 경비 집행 분석{' (연말 추정치 🔮)' if is_forecast_mode else ''}")
-                    
+                    st.markdown(basis_badge, unsafe_allow_html=True)
+
                     df_b_detail = df_budget[df_budget['최종팀명'] == st.session_state.chosen_team].copy()
                     df_a_detail = df_actual[df_actual['최종팀명'] == st.session_state.chosen_team].copy()
 
                     st.markdown("---")
-                    
+
                     if '통합_항목명' in df_b_detail.columns and '통합_항목명' in df_a_detail.columns:
                         df_b_item_temp = df_b_detail.groupby('통합_항목명')[budget_col].sum().reset_index()
                         df_b_item_temp.rename(columns={'통합_항목명': '대분류 항목명', budget_col: '예산금액'}, inplace=True)
-                        
+
                         df_a_item_temp = df_a_detail.groupby('통합_항목명')[actual_col].sum().reset_index()
                         df_a_item_temp.rename(columns={'통합_항목명': '대분류 항목명', actual_col: '집행금액'}, inplace=True)
-                        
+
                         df_merged_temp = pd.merge(df_b_item_temp, df_a_item_temp, on='대분류 항목명', how='outer').fillna(0)
-                        
+
                         df_merged_temp['초과금액'] = df_merged_temp.apply(lambda x: x['집행금액'] - x['예산금액'] if x['집행금액'] > x['예산금액'] else 0, axis=1)
                         df_merged_temp['집행률(%)'] = df_merged_temp.apply(
                             lambda x: (x['집행금액'] / x['예산금액'] * 100) if x['예산금액'] > 0 else (100 if x['집행금액'] > 0 else 0), axis=1
                         )
-                        
+
                         df_overrun = df_merged_temp[df_merged_temp['초과금액'] > 0].sort_values(by='초과금액', ascending=False)
-                        
+
                         if not df_overrun.empty:
                             st.markdown("#### 🚨 예산 초과 집중 관리 항목 TOP 3")
-                            
+
                             top_items = df_overrun.head(3)
-                            cols = st.columns(len(top_items)) 
-                            
+                            cols = st.columns(len(top_items))
+
                             for i, (idx, row) in enumerate(top_items.iterrows()):
                                 with cols[i]:
                                     card_html = f"""
@@ -534,32 +574,32 @@ try:
                             st.info("💡 모든 항목이 예산 범위 내에서 안정적으로 집행되고 있습니다.")
 
                     st.markdown(f"### 🎯 대분류(항목구분명) 예산 대비 집행률 분석 ({analysis_type})")
-                    
+
                     if '통합_항목명' in df_b_detail.columns and '통합_항목명' in df_a_detail.columns:
                         df_b_item = df_b_detail.groupby('통합_항목명')[budget_col].sum().reset_index()
                         df_b_item.rename(columns={'통합_항목명': '대분류 항목명', budget_col: '예산금액'}, inplace=True)
-                        
+
                         df_a_item = df_a_detail.groupby('통합_항목명')[actual_col].sum().reset_index()
                         df_a_item.rename(columns={'통합_항목명': '대분류 항목명', actual_col: '집행금액'}, inplace=True)
-                        
+
                         df_item_merged = pd.merge(df_b_item, df_a_item, on='대분류 항목명', how='outer').fillna(0)
-                        
+
                         df_item_merged['잔여예산'] = df_item_merged.apply(lambda x: x['예산금액'] - x['집행금액'] if x['예산금액'] > x['집행금액'] else 0, axis=1)
                         df_item_merged['초과금액'] = df_item_merged.apply(lambda x: x['집행금액'] - x['예산금액'] if x['집행금액'] > x['예산금액'] else 0, axis=1)
-                        
+
                         df_item_merged['집행률(%)'] = df_item_merged.apply(
                             lambda x: (x['집행금액'] / x['예산금액'] * 100) if x['예산금액'] > 0 else (100 if x['집행금액'] > 0 else 0), axis=1
                         )
-                        
+
                         df_item_merged = df_item_merged[(df_item_merged['예산금액'] > 0) | (df_item_merged['집행금액'] > 0)]
                         df_item_merged = df_item_merged.sort_values(by='집행률(%)', ascending=False)
-                        
+
                         df_item_merged['현재 상태'] = df_item_merged['집행률(%)'].apply(
                             lambda x: '🚨 위험 (90% 이상)' if x >= 90 else ('⚠️ 주의 (70% 이상)' if x >= 70 else '✅ 안전')
                         )
-                        
+
                         display_order = ['대분류 항목명', '예산금액', '집행금액', '초과금액', '잔여예산', '집행률(%)', '현재 상태']
-                        
+
                         st.dataframe(
                             df_item_merged[display_order].style.format({
                                 '예산금액': '{:,.0f} 원',
@@ -579,7 +619,7 @@ try:
                     if '통합_항목명' in df_a_detail.columns:
                         df_a_grid = df_a_detail.groupby('통합_항목명')[cols_to_sum].sum().reset_index()
                         df_a_grid.rename(columns={'통합_항목명': '대분류 항목명'}, inplace=True)
-                        
+
                         format_dict = {col: '{:,.0f} 원' for col in cols_to_sum if col in df_a_grid.columns}
                         st.dataframe(df_a_grid.style.format(format_dict), use_container_width=True)
 
@@ -589,11 +629,11 @@ try:
             elif is_forecast_mode and not forecast_file:
                 st.error("❌ 파일명에 '평균', '예상', '추정' 중 하나가 포함된 예상치 파일이 없습니다. 깃허브에 업로드해주세요.")
             elif not is_forecast_mode and not actual_file:
-                st.error("❌ '경비집행' 또는 '집행' 파일이 없습니다. 깃허브에 업로드해주세요.")
+                st.error("❌ '집행' 또는 '마감'이 들어간 실적 파일이 없습니다. 깃허브에 업로드해주세요.")
             else:
                 st.error("데이터 조립 과정에서 오류가 발생했거나 데이터가 비어있습니다.")
     else:
-        st.error("❌ 필요한 파일(예산 파일 및 집행/예상 파일)을 깃허브 폴더에서 찾을 수 없습니다.")
+        st.error("❌ 필요한 파일(예산 파일 및 집행/마감/예상 파일)을 깃허브 폴더에서 찾을 수 없습니다.")
 
 except Exception as e:
     st.error(f"⚠️ 데이터 처리 중 오류가 발생했습니다: {e}")
